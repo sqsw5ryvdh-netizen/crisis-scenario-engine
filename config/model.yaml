@@ -1,4 +1,5 @@
 # Model parameters. Each one has value, unit and source.
+# low/high (optional) give the plausible range: used by the app sliders and by Monte Carlo (M4).
 # source: ASSUMPTION means there is no verifiable source yet (calibration is M5).
 
 horizon_days:
@@ -28,6 +29,8 @@ base_runoff_financial:
 # x = cumulative deposit loss share + news shocks to date.
 panic_max_multiplier:
   value: 6.0
+  low: 2.0
+  high: 10.0
   unit: multiplier
   source: ASSUMPTION
 panic_steepness:
@@ -71,14 +74,20 @@ hqla_level2_haircut:
   source: ASSUMPTION
 central_bank_haircut:
   value: 0.25
+  low: 0.05
+  high: 0.60
   unit: share of collateral value
   source: ASSUMPTION
 central_bank_mobilisation_lag_days:
   value: 2
+  low: 0
+  high: 5
   unit: days
   source: ASSUMPTION
 fire_sale_discount:
   value: 0.20
+  low: 0.05
+  high: 0.50
   unit: share of book value
   source: ASSUMPTION
 # Sale capacity added each day from day 1; unused capacity carries over.

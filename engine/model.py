@@ -150,6 +150,36 @@ def initial_state(bank: Bank) -> BankState:
     )
 
 
+def uninsured_share(bank: Bank) -> float:
+    """Share of deposits other than insured retail."""
+    deposits = bank.liabilities.deposits
+    total = deposits.total()
+    return 1.0 - deposits.insured_retail / total if total > 0 else 0.0
+
+
+def with_uninsured_share(bank: Bank, share: float) -> Bank:
+    """Copy of `bank` with a different uninsured deposit share.
+
+    Money moves between insured retail and the three other categories (pro rata).
+    Total deposits, and so the balance sheet identity, are unchanged.
+    """
+    if not 0.0 <= share <= 1.0:
+        raise ValueError("share must be between 0 and 1")
+    deposits = bank.liabilities.deposits
+    total = deposits.total()
+    others = ("uninsured_retail", "corporate", "financial")
+    current = sum(getattr(deposits, name) for name in others)
+    target = share * total
+    if current > 0:
+        new = {name: getattr(deposits, name) * target / current for name in others}
+    else:
+        new = {"uninsured_retail": target, "corporate": 0.0, "financial": 0.0}
+    new["insured_retail"] = total - target
+    data = bank.model_dump()
+    data["liabilities"]["deposits"] = new
+    return Bank(**data)
+
+
 # --------------------------------------------------------------------------- run-off
 
 

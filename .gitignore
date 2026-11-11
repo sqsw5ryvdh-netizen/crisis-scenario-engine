@@ -6,3 +6,4 @@ __pycache__/
 files-2.zip
 data/raw/*
 !data/raw/.gitkeep
+.claude/

@@ -8,6 +8,8 @@ fast_run:
   description: Social-media driven run that unfolds over hours to days.
   severity:
     value: 3.0
+    low: 1.5
+    high: 5.0
     unit: multiplier
     source: ASSUMPTION
   news_events:
@@ -23,6 +25,8 @@ slow_burn:
   description: Weeks of gradual confidence erosion.
   severity:
     value: 1.0
+    low: 0.5
+    high: 2.5
     unit: multiplier
     source: ASSUMPTION
   news_events:
@@ -41,6 +45,8 @@ cyber_outage:
   description: Payments are blocked for three days; queued withdrawals hit when service returns.
   severity:
     value: 2.0
+    low: 1.0
+    high: 4.0
     unit: multiplier
     source: ASSUMPTION
   overrides:
@@ -68,6 +74,8 @@ geopolitical:
   description: Market haircuts widen and wholesale funding markets close from day 1.
   severity:
     value: 1.5
+    low: 0.75
+    high: 3.0
     unit: multiplier
     source: ASSUMPTION
   overrides:
