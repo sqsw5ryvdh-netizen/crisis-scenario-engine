@@ -9,6 +9,7 @@ Conventions:
 
 from __future__ import annotations
 
+from string import Formatter
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -225,10 +226,143 @@ class ModelParams(StrictModel):
         return ModelParams(**data)
 
 
+ACTORS = (
+    "competent_authority",
+    "resolution_authority",
+    "central_bank",
+    "deposit_guarantee_scheme",
+    "bank_management",
+)
+# Key events an exercise script can contain, in the order they are shown within a day.
+INJECT_EVENTS = (
+    "opening",
+    "outage_start",
+    "outage_end",
+    "news",
+    "first_hqla_sale",
+    "first_central_bank",
+    "first_fire_sale",
+    "recovery",
+    "early_intervention",
+    "failure",
+    "end_no_failure",
+)
+# Placeholders a template may use; the inject generator fills them with simulated numbers.
+INJECT_FIELDS = (
+    "bank_name",
+    "scenario_name",
+    "unit",
+    "day",
+    "headline",
+    "trigger_reason",
+    "deposits_total",
+    "insured_deposits",
+    "deposit_loss_pct",
+    "outflow_today",
+    "queued_withdrawals",
+    "liquidity_buffer",
+    "lcr_pct",
+    "survival_days",
+    "cet1_ratio_pct",
+    "cet1_requirement_pct",
+    "unencumbered_collateral",
+    "central_bank_funding",
+    "central_bank_drawn_today",
+    "hqla_sold_today",
+    "fire_sale_today",
+    "loss_today",
+    "unmet_outflow",
+    "funding_need",
+    "funding_need_days",
+    "failure_day",
+    "horizon_days",
+)
+
+
+def _check_placeholders(text: str) -> str:
+    for _, field, spec, conversion in Formatter().parse(text):
+        if field is None:
+            continue
+        if field not in INJECT_FIELDS:
+            raise ValueError(f"unknown placeholder '{{{field}}}'")
+        if spec or conversion:
+            raise ValueError(f"placeholder '{{{field}}}' must not carry a format")
+    return text
+
+
+class InjectText(StrictModel):
+    sees: str = Field(min_length=1)
+    decision: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> "InjectText":
+        _check_placeholders(self.sees)
+        _check_placeholders(self.decision)
+        return self
+
+
+class EventTemplate(StrictModel):
+    title: str = Field(min_length=1)
+    situation: str = Field(min_length=1)
+    injects: dict[str, InjectText]
+
+    @model_validator(mode="after")
+    def _check(self) -> "EventTemplate":
+        _check_placeholders(self.title)
+        _check_placeholders(self.situation)
+        unknown = set(self.injects) - set(ACTORS)
+        if unknown:
+            raise ValueError(f"unknown actors: {sorted(unknown)}")
+        if not self.injects:
+            raise ValueError("an event needs at least one actor")
+        return self
+
+
+class SummaryTemplates(StrictModel):
+    failure: str = Field(min_length=1)
+    no_failure: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SummaryTemplates":
+        _check_placeholders(self.failure)
+        _check_placeholders(self.no_failure)
+        return self
+
+
+class GlossaryEntry(StrictModel):
+    term: str = Field(min_length=1)
+    definition: str = Field(min_length=1)
+
+
+class InjectsConfig(StrictModel):
+    """Templates of config/injects.yaml for the exercise script (spec section 4.3)."""
+
+    actors: dict[str, str]
+    summary: SummaryTemplates
+    disclaimer: str = Field(min_length=1)
+    glossary: list[GlossaryEntry]
+    events: dict[str, EventTemplate]
+
+    @model_validator(mode="after")
+    def _check(self) -> "InjectsConfig":
+        if set(self.actors) != set(ACTORS):
+            raise ValueError(f"actors must be exactly {list(ACTORS)}")
+        if set(self.events) != set(INJECT_EVENTS):
+            missing = sorted(set(INJECT_EVENTS) - set(self.events))
+            unknown = sorted(set(self.events) - set(INJECT_EVENTS))
+            raise ValueError(f"events mismatch: missing {missing}, unknown {unknown}")
+        for actor in ACTORS:
+            for kind in ("opening", "failure"):
+                if actor not in self.events[kind].injects:
+                    raise ValueError(f"event '{kind}' needs an inject for '{actor}'")
+        return self
+
+
 class Config(StrictModel):
     banks: dict[str, Bank]
     model: ModelParams
     scenarios: dict[str, Scenario]
+    injects: InjectsConfig
 
     @model_validator(mode="after")
     def _check_overrides(self) -> "Config":

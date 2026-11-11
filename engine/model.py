@@ -440,7 +440,7 @@ def _check_triggers(
     fail_reasons = []
     if row["unmet_outflow"] > EPS:
         fail_reasons.append(
-            f"liquidity exhausted: {row['unmet_outflow']:.2f} of outflows could not be paid"
+            f"liquidity exhausted, {row['unmet_outflow']:.2f} of outflows could not be paid"
         )
     if cet1_ratio < requirement:
         fail_reasons.append(f"CET1 ratio {cet1_ratio:.1%} below requirement {requirement:.1%}")

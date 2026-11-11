@@ -1,34 +1,35 @@
 # STATUS
 
-Last completed milestone: **M2 - App** (2026-11-11). Next: M3 (not started).
+Last completed milestone: **M3 - Exercise script** (2026-11-11). Next: M4 (not started).
 
 ## What was built
-- M0-M1b: validated config (`engine/schema.py`, `engine/config.py`), deterministic engine (`engine/model.py`), CLI (`engine/run.py`), 4 archetypes, 4 scenarios.
-- `app/main.py`: bank and scenario selectors, 6 sliders, headline row (failure day, deposit loss, funding need), timeline chart, waterfall table.
-- `app/charts.py`: plotly timeline with three stacked panels (liquidity buffer, deposits, CET1 ratio), trigger markers with labels, news markers with the headline on hover.
-- `engine/model.py`: `with_uninsured_share(bank, share)` moves deposits between insured retail and the other categories, total unchanged.
-- Config: `low`/`high` ranges for the slider parameters and for each scenario's severity (all ASSUMPTION).
-- `tests/`: 209 tests (config, engine, chart, headless app tests).
+- M0-M2: validated config, deterministic engine, CLI, 4 archetypes, 4 scenarios, app with selectors, 6 sliders, timeline chart and waterfall table.
+- `config/injects.yaml`: templates per key event and actor ("what you see", "decision due"), summary texts, glossary, disclaimer. Validated at load: unknown placeholders, actors or missing events are rejected.
+- `engine/injects.py`: pure generator. Key days = opening, news, trigger stages, first use of each funding source, outage start and end, last day.
+- `engine/export.py`: script as .docx, injects as .csv, daily table as .csv, all returned as bytes.
+- CLI `--export-dir`; app section "Exercise script" with the injects per key day and three download buttons.
+- `tests/`: 253 tests.
 
 ## How to run
 - Setup: `python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt`
 - Tests: `.venv/bin/pytest -q`
 - App: `.venv/bin/streamlit run app/main.py`
-- CLI: `.venv/bin/python -m engine.run --bank digital --scenario fast_run`
+- Export: `.venv/bin/python -m engine.run --bank digital --scenario fast_run --export-dir exports`
 
 ## Acceptance output
-- `pytest -q` -> `209 passed`.
-- Slider re-run, measured headless over 7 moves of the uninsured-share slider: max 0.036 s, median 0.035 s (limit 1 s; also asserted in `tests/test_app.py`).
-- Digital bank, fast run: failure day by uninsured share 30% -> 12, 40% -> 10, 50% -> 7, 60% -> 6, 70% -> 5, 80% -> 4.
-- Screenshots taken in the browser (digital / fast run, default and 73% uninsured); shown in chat, not stored in the repo.
+- `pytest -q` -> `253 passed in 8.06s`.
+- Exported `exports/exercise_script_digital_fast_run.docx` (8 key days, days 0 to 10, 31 injects), read back paragraph by paragraph; plus `injects_...csv` and `daily_table_...csv`.
+- Slider re-run with the export built on every run: max 0.13 s (limit 1 s).
 
 ## Deviations from spec and choices (approved 2026-11-11)
-- Sliders: severity, uninsured deposit share, maximum panic multiplier, central bank lag, central bank haircut, fire-sale discount. The uninsured share is a bank property, not a model parameter; its 10-95% slider range is a display limit in `app/main.py`.
-- Headline row added (not listed in M2) so the failure-day shift is visible.
-- `app/main.py` adds the repo root to `sys.path` so `streamlit run app/main.py` can import `engine`.
-- Earlier modelling choices are unchanged: equity = CET1; HQLA sold outright with haircut loss; carry-over fire-sale capacity (1% per day); central bank mobilisation starts at the recovery trigger; run stops at failure; outage queue; geopolitical shock from day 1.
+- New dependency `python-docx`; export is .docx only (no .pdf).
+- Inject wording is a draft written for the prototype, with no legal references. It must be reviewed by the team before the demo.
+- One facilitator document that includes the outcome; no per-actor handouts.
+- `exports/` is ignored by git; no sample export is committed.
+- Earlier choices unchanged: equity = CET1; HQLA sold outright; carry-over fire-sale capacity; central bank mobilisation at the recovery trigger; run stops at failure; outage queue; geopolitical shock from day 1; uninsured-share slider is a bank property.
 
 ## Open questions
 - "Higher severity never fails later" is verified on a grid, not proven.
 - Archetype numbers are placeholders (the digital bank is the most resilient archetype). Calibration is M5.
-- No uncertainty band on the chart yet (M4).
+- The LCR proxy shows 0% once HQLA are sold even while central bank capacity remains; this can read oddly in the script.
+- The download buttons were checked for presence, not clicked, in the browser; the same bytes are tested through the CLI export.

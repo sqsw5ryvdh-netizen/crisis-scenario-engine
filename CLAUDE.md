@@ -7,7 +7,7 @@ Full spec: @docs/SPEC.md  (read it before any work)
 Current status: @docs/STATUS.md
 
 ## Stack
-- Python 3.11+, pandas, numpy, pydantic, plotly, streamlit, pytest, pyyaml
+- Python 3.11+, pandas, numpy, pydantic, plotly, streamlit, pytest, pyyaml, python-docx
 - Run app: `streamlit run app/main.py`
 - Run tests: `pytest -q`
 

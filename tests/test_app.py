@@ -92,6 +92,8 @@ def test_app_runs_and_shows_selectors_sliders_chart_and_table():
     assert len(at.slider) == 6
     assert [metric.label for metric in at.metric][0] == "Failure day"
     assert len(at.dataframe) == 1
+    assert any(h.value == "Exercise script" for h in at.subheader)
+    assert len(at.expander) >= 2
 
 
 def test_moving_a_slider_reruns_in_under_one_second_and_shifts_failure_day():

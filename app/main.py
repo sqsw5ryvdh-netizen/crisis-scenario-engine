@@ -10,6 +10,8 @@ import streamlit as st  # noqa: E402
 
 from app.charts import build_timeline  # noqa: E402
 from engine.config import load_config  # noqa: E402
+from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx  # noqa: E402
+from engine.injects import build_script  # noqa: E402
 from engine.model import simulate, uninsured_share, with_uninsured_share  # noqa: E402
 
 # Range of the uninsured-share slider (a display limit, not a model parameter).
@@ -146,3 +148,39 @@ st.dataframe(
     width="stretch",
     column_config={c: st.column_config.NumberColumn(format="%.2f") for c in amount_columns},
 )
+
+st.subheader("Exercise script")
+script = build_script(bank, config.model, scenario, result, config.injects)
+st.write(script.summary)
+stem = f"{bank_key}_{scenario_key}"
+docx_button, injects_button, data_button = st.columns(3)
+docx_button.download_button(
+    "Download script (.docx)",
+    data=script_to_docx(script),
+    file_name=f"exercise_script_{stem}.docx",
+    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
+injects_button.download_button(
+    "Download injects (.csv)",
+    data=injects_to_csv(script),
+    file_name=f"injects_{stem}.csv",
+    mime="text/csv",
+)
+data_button.download_button(
+    "Download daily data (.csv)",
+    data=daily_table_to_csv(result),
+    file_name=f"daily_table_{stem}.csv",
+    mime="text/csv",
+)
+for key_day in script.key_days:
+    titles = "; ".join(event.title for event in key_day.events)
+    with st.expander(f"Day {key_day.day}: {titles}"):
+        for event in key_day.events:
+            st.markdown(f"**{event.title}**")
+            st.write(event.situation)
+            for inject in event.injects:
+                st.markdown(
+                    f"*{inject.actor_name}*\n\n"
+                    f"- **What you see:** {inject.sees}\n"
+                    f"- **Decision due:** {inject.decision}"
+                )

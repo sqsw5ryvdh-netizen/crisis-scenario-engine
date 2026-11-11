@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from engine.config import DEFAULT_CONFIG_DIR, load_config
+from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx
+from engine.injects import build_script
 from engine.model import SimulationResult, simulate
 
 # column in the result table -> (header, format)
@@ -55,6 +57,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--bank", required=True, help="bank key in config/banks.yaml")
     parser.add_argument("--scenario", required=True, help="scenario key in config/scenarios.yaml")
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
+    parser.add_argument(
+        "--export-dir", type=Path, help="write the exercise script (.docx) and data (.csv) here"
+    )
     args = parser.parse_args(argv)
 
     config = load_config(args.config_dir)
@@ -90,6 +95,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"= projected outflows {need.projected_outflows:.2f} "
             f"- remaining liquidity {need.remaining_liquidity:.2f}"
         )
+
+    if args.export_dir is not None:
+        script = build_script(bank, config.model, scenario, result, config.injects)
+        stem = f"{args.bank}_{args.scenario}"
+        files = {
+            f"exercise_script_{stem}.docx": script_to_docx(script),
+            f"injects_{stem}.csv": injects_to_csv(script),
+            f"daily_table_{stem}.csv": daily_table_to_csv(result),
+        }
+        args.export_dir.mkdir(parents=True, exist_ok=True)
+        print()
+        for name, content in files.items():
+            (args.export_dir / name).write_bytes(content)
+            print(f"Exported {args.export_dir / name}")
     return 0
 
 
