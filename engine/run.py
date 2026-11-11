@@ -23,6 +23,7 @@ _COLUMNS = {
     "funded_central_bank": ("f_cb", "{:.2f}"),
     "funded_fire_sale": ("f_fire", "{:.2f}"),
     "unmet_outflow": ("unmet", "{:.2f}"),
+    "queued_withdrawals": ("queued", "{:.2f}"),
     "liquidity_buffer": ("buffer", "{:.2f}"),
     "lcr_proxy": ("lcr", "{:.0%}"),
     "survival_days": ("surv_d", "{:.1f}"),

@@ -22,7 +22,7 @@ def bank_data() -> dict:
 def test_shipped_config_loads():
     config = load_config()
     assert set(config.banks) == {"universal", "retail", "digital", "specialised"}
-    assert {"fast_run", "slow_burn"} <= set(config.scenarios)
+    assert set(config.scenarios) == {"fast_run", "slow_burn", "cyber_outage", "geopolitical"}
     assert config.model.horizon_days.value == 30
 
 
@@ -101,6 +101,17 @@ def test_model_rejects_haircut_of_one_or_more(tmp_path):
     model["central_bank_haircut"]["value"] = 1.0
     path.write_text(yaml.safe_dump(model), encoding="utf-8")
     with pytest.raises(ValidationError, match="central_bank_haircut"):
+        load_config(tmp_path / "config")
+
+
+def test_model_rejects_outage_ending_before_it_starts(tmp_path):
+    shutil.copytree(DEFAULT_CONFIG_DIR, tmp_path / "config")
+    path = tmp_path / "config" / "model.yaml"
+    model = yaml.safe_load(path.read_text(encoding="utf-8"))
+    model["payment_outage_start_day"]["value"] = 4
+    model["payment_outage_end_day"]["value"] = 2
+    path.write_text(yaml.safe_dump(model), encoding="utf-8")
+    with pytest.raises(ValidationError, match="payment outage"):
         load_config(tmp_path / "config")
 
 

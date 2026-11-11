@@ -13,6 +13,8 @@ Accounting conventions:
 - Central bank funding is a new liability; the collateral becomes encumbered.
 - Fire-sale losses reduce CET1; RWA fall in proportion to illiquid assets sold.
 - Fire-sale capacity accumulates daily from day 1; unused capacity carries over.
+- Payment outage: withdrawals and maturing wholesale funding are queued, nothing is
+  paid, and the whole queue is due on the first day after the outage.
 - Equity is represented by CET1.
 """
 
@@ -51,6 +53,10 @@ class BankState:
     other_liabilities: float
     cet1: float
     rwa: float
+    # Payment outage: withdrawals requested but not yet executed (still in `deposits`),
+    # and wholesale funding that fell due but could not be settled.
+    queued_deposits: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
+    wholesale_overdue: float = 0.0
 
     @property
     def total_deposits(self) -> float:
@@ -58,7 +64,11 @@ class BankState:
 
     @property
     def wholesale_funding(self) -> float:
-        return sum(amount for _, amount in self.wholesale_ladder) + self.wholesale_beyond
+        return (
+            sum(amount for _, amount in self.wholesale_ladder)
+            + self.wholesale_beyond
+            + self.wholesale_overdue
+        )
 
     @property
     def total_assets(self) -> float:
@@ -164,7 +174,8 @@ def panic_level(x: float, p: ModelParams) -> float:
 
 def rollover_fraction(x: float, p: ModelParams) -> float:
     """Share of maturing wholesale funding that is rolled over."""
-    return min(1.0, max(0.0, 1.0 - p.wholesale_rollover_sensitivity.value * panic_level(x, p)))
+    fraction = 1.0 - p.wholesale_rollover_sensitivity.value * panic_level(x, p)
+    return min(p.wholesale_rollover_cap.value, max(0.0, fraction))
 
 
 def runoff_rates(x: float, severity: float, p: ModelParams) -> tuple[float, ...]:
@@ -279,7 +290,9 @@ def lcr_proxy(state: BankState, p: ModelParams) -> float:
         stock * getattr(p, f"lcr_outflow_rate_{name}").value
         for name, stock in zip(DEPOSIT_CATEGORIES, state.deposits)
     )
-    outflows += p.lcr_outflow_rate_wholesale.value * sum(a for _, a in state.wholesale_ladder)
+    outflows += p.lcr_outflow_rate_wholesale.value * (
+        sum(a for _, a in state.wholesale_ladder) + state.wholesale_overdue
+    )
     if outflows <= EPS:
         return math.inf
     return hqla_buffer(state, p) / outflows
@@ -344,6 +357,7 @@ def _row(
         funded_central_bank=funding.central_bank,
         funded_fire_sale=funding.fire_sale,
         unmet_outflow=funding.unmet,
+        queued_withdrawals=sum(state.queued_deposits),
         loss=funding.loss,
         liquidity_buffer=buffer,
         lcr_proxy=lcr_proxy(state, p),
@@ -361,11 +375,17 @@ def _row(
 
 
 def _check_triggers(
-    day: int, stage: int, row: dict, requirement: float, p: ModelParams
+    day: int, stage: int, row: dict, requirement: float, initial_deposits: float, p: ModelParams
 ) -> tuple[int, list[Event]]:
-    """Return the new stage (it never goes back) and the events for stages newly reached."""
+    """Return the new stage (it never goes back) and the events for stages newly reached.
+
+    Withdrawals queued during a payment outage count as deposit loss for the recovery trigger.
+    """
     lcr = row["lcr_proxy"]
+    queued = row["queued_withdrawals"]
     loss_share = row["cum_deposit_loss_pct"] / 100.0
+    if initial_deposits > 0:
+        loss_share += queued / initial_deposits
     cet1_ratio = row["cet1_ratio"]
 
     recovery_reasons = []
@@ -373,7 +393,8 @@ def _check_triggers(
         recovery_reasons.append(f"LCR proxy {lcr:.0%} below {p.recovery_lcr_threshold.value:.0%}")
     if loss_share > p.recovery_deposit_loss_threshold.value:
         recovery_reasons.append(
-            f"cumulative deposit loss {loss_share:.1%} above "
+            f"cumulative deposit loss{' incl. queued withdrawals' if queued > EPS else ''} "
+            f"{loss_share:.1%} above "
             f"{p.recovery_deposit_loss_threshold.value:.0%}"
         )
 
@@ -415,6 +436,8 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
     severity = scenario.severity.value
     horizon = int(p.horizon_days.value)
     lag = int(p.central_bank_mobilisation_lag_days.value)
+    outage_start = int(p.payment_outage_start_day.value)
+    outage_end = int(p.payment_outage_end_day.value)
     requirement = bank.capital.capital_requirement_ratio
 
     state = initial_state(bank)
@@ -435,7 +458,7 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
         0, STATUS_NORMAL, state, panic_multiplier(0.0, p), rollover_fraction(0.0, p),
         0.0, 0.0, Funding(), False, initial_deposits, p,
     )
-    stage, new_events = _check_triggers(0, stage, row, requirement, p)
+    stage, new_events = _check_triggers(0, stage, row, requirement, initial_deposits, p)
     events.extend(new_events)
     if stage >= 1:
         central_bank_from = lag
@@ -455,35 +478,57 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
             if event.day == day:
                 news_shock += event.panic_shock
                 events.append(Event(day, "news", event.headline))
-        loss_share = 1.0 - state.total_deposits / initial_deposits if initial_deposits > 0 else 0.0
-        x = loss_share + news_shock
+        # Deposits already queued for withdrawal count as lost for the panic multiplier.
+        left_or_queued = initial_deposits - state.total_deposits + sum(state.queued_deposits)
+        x = (left_or_queued / initial_deposits if initial_deposits > 0 else 0.0) + news_shock
         multiplier = panic_multiplier(x, p)
         rollover = rollover_fraction(x, p)
         rates = runoff_rates(x, severity, p)
-        deposit_outflows = tuple(stock * rate for stock, rate in zip(state.deposits, rates))
-        maturing = sum(a for d, a in state.wholesale_ladder if d == day)
-        wholesale_outflow = maturing * (1.0 - rollover)
-        outflow_deposits = sum(deposit_outflows)
-        need = outflow_deposits + wholesale_outflow
-
-        # 2. Funding waterfall.
-        usable = cb_usable(day)
-        already_sold = initial_illiquid - state.illiquid_assets
-        fire_sale_cap = max(0.0, fire_sale_daily_capacity * day - already_sold)
-        state, funding = fund_outflow(state, need, usable, fire_sale_cap, p)
-
-        # 3. Balance sheet: only the part that was actually paid leaves.
-        paid_share = (need - funding.unmet) / need if need > EPS else 1.0
-        state = replace(
-            state,
-            deposits=tuple(
-                max(0.0, stock - out * paid_share)
-                for stock, out in zip(state.deposits, deposit_outflows)
-            ),
-            wholesale_ladder=tuple((d, a) for d, a in state.wholesale_ladder if d != day),
-            # Rolled-over funding, and any part due but unpaid, moves beyond the horizon.
-            wholesale_beyond=state.wholesale_beyond + maturing - wholesale_outflow * paid_share,
+        requests = tuple(
+            (stock - queued) * rate
+            for stock, queued, rate in zip(state.deposits, state.queued_deposits, rates)
         )
+        maturing = sum(a for d, a in state.wholesale_ladder if d == day)
+        remaining_ladder = tuple((d, a) for d, a in state.wholesale_ladder if d != day)
+        usable = cb_usable(day)
+
+        if outage_start >= 1 and outage_start <= day <= outage_end:
+            # Payments are blocked: requests are queued, nothing is paid or funded.
+            outflow_deposits = wholesale_outflow = 0.0
+            funding = Funding()
+            state = replace(
+                state,
+                queued_deposits=tuple(q + r for q, r in zip(state.queued_deposits, requests)),
+                wholesale_ladder=remaining_ladder,
+                wholesale_overdue=state.wholesale_overdue + maturing,
+            )
+        else:
+            # Today's requests plus anything queued during an outage are due.
+            deposit_outflows = tuple(q + r for q, r in zip(state.queued_deposits, requests))
+            due = maturing + state.wholesale_overdue
+            wholesale_outflow = due * (1.0 - rollover)
+            outflow_deposits = sum(deposit_outflows)
+            need = outflow_deposits + wholesale_outflow
+
+            # 2. Funding waterfall.
+            already_sold = initial_illiquid - state.illiquid_assets
+            fire_sale_cap = max(0.0, fire_sale_daily_capacity * day - already_sold)
+            state, funding = fund_outflow(state, need, usable, fire_sale_cap, p)
+
+            # 3. Balance sheet: only the part that was actually paid leaves.
+            paid_share = (need - funding.unmet) / need if need > EPS else 1.0
+            state = replace(
+                state,
+                deposits=tuple(
+                    max(0.0, stock - out * paid_share)
+                    for stock, out in zip(state.deposits, deposit_outflows)
+                ),
+                queued_deposits=(0.0,) * len(DEPOSIT_CATEGORIES),
+                wholesale_ladder=remaining_ladder,
+                wholesale_overdue=0.0,
+                # Rolled-over funding, and any part due but unpaid, moves beyond the horizon.
+                wholesale_beyond=state.wholesale_beyond + due - wholesale_outflow * paid_share,
+            )
         row = _row(
             day, "", state, multiplier, rollover, outflow_deposits, wholesale_outflow,
             funding, usable, initial_deposits, p,
@@ -491,7 +536,7 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
 
         # 4. Triggers.
         previous_stage = stage
-        stage, new_events = _check_triggers(day, stage, row, requirement, p)
+        stage, new_events = _check_triggers(day, stage, row, requirement, initial_deposits, p)
         events.extend(new_events)
         if previous_stage == 0 and stage >= 1:
             central_bank_from = day + lag

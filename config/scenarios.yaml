@@ -1,7 +1,7 @@
 # Trigger scenarios. Each preset is a set of parameter values plus dated news events.
 # severity multiplies every deposit category's base run-off rate (1.0 = baseline).
 # panic_shock is added to x in the panic multiplier from the event day onwards.
-# The cyber/ICT outage and geopolitical presets are not built yet (see docs/STATUS.md).
+# overrides replace parameters of model.yaml for this scenario only.
 
 fast_run:
   name: Fast digital run
@@ -35,3 +35,62 @@ slow_burn:
     - day: 20
       headline: Press reports that large corporate clients are moving their accounts.
       panic_shock: 0.03
+
+cyber_outage:
+  name: Cyber/ICT outage
+  description: Payments are blocked for three days; queued withdrawals hit when service returns.
+  severity:
+    value: 2.0
+    unit: multiplier
+    source: ASSUMPTION
+  overrides:
+    payment_outage_start_day:
+      value: 1
+      unit: day
+      source: ASSUMPTION
+    payment_outage_end_day:
+      value: 3
+      unit: day
+      source: ASSUMPTION
+  news_events:
+    - day: 1
+      headline: Customers cannot log in or make payments; the bank reports a technical incident.
+      panic_shock: 0.05
+    - day: 2
+      headline: The bank confirms a cyber attack and gives no date for restoring service.
+      panic_shock: 0.05
+    - day: 4
+      headline: Service is restored; customers rush to move their money.
+      panic_shock: 0.03
+
+geopolitical:
+  name: Geopolitical shock
+  description: Market haircuts widen and wholesale funding markets close from day 1.
+  severity:
+    value: 1.5
+    unit: multiplier
+    source: ASSUMPTION
+  overrides:
+    wholesale_rollover_cap:
+      value: 0.0
+      unit: share of maturing funding
+      source: ASSUMPTION
+    hqla_level1_haircut:
+      value: 0.04
+      unit: share of market value
+      source: ASSUMPTION
+    hqla_level2_haircut:
+      value: 0.25
+      unit: share of market value
+      source: ASSUMPTION
+    fire_sale_discount:
+      value: 0.30
+      unit: share of book value
+      source: ASSUMPTION
+  news_events:
+    - day: 1
+      headline: A geopolitical escalation triggers a market sell-off; funding markets freeze.
+      panic_shock: 0.05
+    - day: 6
+      headline: Press reports the bank's exposure to the affected region.
+      panic_shock: 0.04

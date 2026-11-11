@@ -44,6 +44,22 @@ wholesale_rollover_sensitivity:
   unit: multiplier
   source: ASSUMPTION
 
+# Upper limit on the rollover fraction: 1 = wholesale market open, 0 = closed.
+wholesale_rollover_cap:
+  value: 1.0
+  unit: share of maturing funding
+  source: ASSUMPTION
+
+# --- Payment outage: withdrawals are queued from start day to end day (0 = no outage) ---
+payment_outage_start_day:
+  value: 0
+  unit: day
+  source: ASSUMPTION
+payment_outage_end_day:
+  value: 0
+  unit: day
+  source: ASSUMPTION
+
 # --- Funding waterfall ---
 hqla_level1_haircut:
   value: 0.01

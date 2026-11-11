@@ -24,6 +24,7 @@ BALANCE_COLUMNS = [f"dep_{name}" for name in DEPOSIT_CATEGORIES] + [
     "illiquid_assets",
     "cet1",
     "rwa",
+    "queued_withdrawals",
 ]
 
 
@@ -38,6 +39,13 @@ def run(bank: str, scenario: str, severity: float | None = None, **scenario_upda
 
 def event_day(result, kind: str):
     return next((e.day for e in result.events if e.kind == kind), None)
+
+
+def central_bank_usable_from(result) -> float:
+    recovery_day = event_day(result, "recovery")
+    if recovery_day is None:
+        return math.inf
+    return recovery_day + int(CONFIG.model.central_bank_mobilisation_lag_days.value)
 
 
 # ------------------------------------------------- the 4 sanity checks of CLAUDE.md
@@ -112,8 +120,7 @@ def test_funding_sources_add_up_to_the_outflow(bank, scenario):
 def test_waterfall_order(bank, scenario):
     result = run(bank, scenario)
     table = result.table
-    lag = int(CONFIG.model.central_bank_mobilisation_lag_days.value)
-    usable_from = event_day(result, "recovery") + lag
+    usable_from = central_bank_usable_from(result)
     haircut = CONFIG.model.central_bank_haircut.value
     for row in table.itertuples():
         if row.funded_hqla > TOL:
@@ -130,10 +137,7 @@ def test_waterfall_order(bank, scenario):
 @pytest.mark.parametrize("bank,scenario", PAIRS)
 def test_no_central_bank_funding_before_mobilisation_lag(bank, scenario):
     result = run(bank, scenario)
-    lag = int(CONFIG.model.central_bank_mobilisation_lag_days.value)
-    recovery_day = event_day(result, "recovery")
-    assert recovery_day is not None
-    early = result.table[result.table["day"] < recovery_day + lag]
+    early = result.table[result.table["day"] < central_bank_usable_from(result)]
     assert early["funded_central_bank"].abs().max() < TOL
     assert early["central_bank_funding"].abs().max() < TOL
 
@@ -189,6 +193,63 @@ def test_simulation_is_deterministic():
     second = run("digital", "fast_run")
     assert first.table.equals(second.table)
     assert first.events == second.events
+
+
+# ------------------------------------------------- cyber outage and geopolitical shock
+
+
+@pytest.mark.parametrize("bank", list(CONFIG.banks))
+def test_outage_queues_withdrawals_and_pays_nothing(bank):
+    table = run(bank, "cyber_outage").table
+    overrides = CONFIG.scenarios["cyber_outage"].overrides
+    start = int(overrides["payment_outage_start_day"].value)
+    end = int(overrides["payment_outage_end_day"].value)
+    outage = table[(table["day"] >= start) & (table["day"] <= end)]
+    assert len(outage) == end - start + 1
+    assert outage["outflow_total"].abs().max() < TOL
+    assert (outage["deposits_total"] - table["deposits_total"].iloc[0]).abs().max() < TOL
+    assert (outage["cash"] - table["cash"].iloc[0]).abs().max() < TOL
+    assert outage["queued_withdrawals"].is_monotonic_increasing
+    assert outage["queued_withdrawals"].iloc[0] > 0
+    assert (outage["status"] != "failed").all()
+    # Queued withdrawals never exceed the deposits they are queued against.
+    assert (table["queued_withdrawals"] <= table["deposits_total"] + TOL).all()
+
+
+@pytest.mark.parametrize("bank", list(CONFIG.banks))
+def test_queue_is_released_on_the_first_day_after_the_outage(bank):
+    table = run(bank, "cyber_outage").table.set_index("day")
+    end = int(CONFIG.scenarios["cyber_outage"].overrides["payment_outage_end_day"].value)
+    queued = table.loc[end, "queued_withdrawals"]
+    assert table.loc[end + 1, "outflow_deposits"] > queued
+    assert table.loc[end + 1, "queued_withdrawals"] == 0
+    assert (table.loc[end + 1 :, "queued_withdrawals"] == 0).all()
+
+
+@pytest.mark.parametrize("scenario", ["fast_run", "slow_burn", "geopolitical"])
+def test_no_queue_without_an_outage(scenario):
+    for bank in CONFIG.banks:
+        assert run(bank, scenario).table["queued_withdrawals"].abs().max() == 0
+
+
+@pytest.mark.parametrize("bank", list(CONFIG.banks))
+def test_closed_wholesale_market_rolls_nothing_over(bank):
+    table = run(bank, "geopolitical").table.set_index("day")
+    assert (table["rollover_fraction"] == 0).all()
+    for day, amount in CONFIG.banks[bank].liabilities.wholesale_funding.maturing.items():
+        if day in table.index and table.loc[day, "unmet_outflow"] < TOL:
+            assert table.loc[day, "outflow_wholesale"] == pytest.approx(amount)
+
+
+def test_wider_haircuts_cost_more_capital_per_unit_sold():
+    base = run("universal", "geopolitical", overrides={
+        "wholesale_rollover_cap": CONFIG.scenarios["geopolitical"].overrides["wholesale_rollover_cap"]
+    }).table
+    shocked = run("universal", "geopolitical").table
+    def loss_rate(table):
+        sold = table[table["funded_hqla"] > TOL]
+        return (sold["loss"] / sold["funded_hqla"]).iloc[0]
+    assert loss_rate(shocked) > loss_rate(base)
 
 
 # ------------------------------------------------- CLI

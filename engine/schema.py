@@ -163,6 +163,12 @@ class ModelParams(StrictModel):
     panic_midpoint: Parameter
     # Rollover fraction = 1 - sensitivity * normalised panic, clamped to [0, 1].
     wholesale_rollover_sensitivity: Parameter
+    # Upper limit on the rollover fraction: 1 = market open, 0 = market closed.
+    wholesale_rollover_cap: Parameter
+
+    # Payment outage: withdrawals are queued from start day to end day (0 = no outage).
+    payment_outage_start_day: Parameter
+    payment_outage_end_day: Parameter
 
     # Funding waterfall.
     hqla_level1_haircut: Parameter
@@ -203,6 +209,14 @@ class ModelParams(StrictModel):
             raise ValueError("horizon_days must be a positive whole number")
         if self.panic_max_multiplier.value < 1:
             raise ValueError("panic_max_multiplier must be >= 1")
+        if self.wholesale_rollover_cap.value > 1:
+            raise ValueError("wholesale_rollover_cap must be <= 1")
+        start = self.payment_outage_start_day.value
+        end = self.payment_outage_end_day.value
+        if start != int(start) or end != int(end):
+            raise ValueError("payment outage days must be whole numbers")
+        if (start == 0) != (end == 0) or end < start:
+            raise ValueError("payment outage needs 1 <= start day <= end day, or 0 and 0")
         return self
 
     def with_overrides(self, overrides: dict[str, Parameter]) -> "ModelParams":
