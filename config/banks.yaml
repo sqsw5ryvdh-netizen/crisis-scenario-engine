@@ -1,0 +1,33 @@
+# Bank archetypes. All amounts are fictitious, with realistic proportions.
+# M0 ships one archetype; the other three are added in M1.
+# Equity is represented by CET1: assets = liabilities + cet1.
+
+digital:
+  name: Digital deposit bank
+  description: Online-only bank funded mostly by retail deposits collected through apps and platforms.
+  unit: EUR bn
+  source: ASSUMPTION
+  assets:
+    cash_reserves: 3.0
+    hqla_level1: 3.0
+    hqla_level2: 1.0
+    other_eligible_collateral: 2.0
+    illiquid_assets: 11.0
+  liabilities:
+    deposits:
+      insured_retail: 9.0
+      uninsured_retail: 3.5
+      corporate: 1.5
+      financial: 0.5
+    wholesale_funding:
+      maturing:
+        5: 0.3
+        12: 0.3
+        20: 0.4
+        28: 0.5
+      beyond_horizon: 1.5
+    other_liabilities: 1.0
+  capital:
+    cet1: 1.5
+    rwa: 8.0
+    capital_requirement_ratio: 0.105

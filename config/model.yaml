@@ -1,0 +1,8 @@
+# Model parameters. Each one has value, unit and source.
+# source: ASSUMPTION means there is no verifiable source yet.
+# The run-off, waterfall and trigger parameters are added in M1.
+
+horizon_days:
+  value: 30
+  unit: days
+  source: docs/SPEC.md section 3.2

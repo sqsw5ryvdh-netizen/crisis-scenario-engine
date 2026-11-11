@@ -1,0 +1,27 @@
+# Trigger scenarios. Each preset is a set of parameter values plus dated news events.
+# severity multiplies every deposit category's base run-off rate (1.0 = baseline).
+# All values are placeholders until the engine exists (M1).
+
+fast_run:
+  name: Fast digital run
+  description: Social-media driven run that unfolds over hours to days.
+  severity:
+    value: 3.0
+    unit: multiplier
+    source: ASSUMPTION
+  news_events:
+    - day: 1
+      headline: Rumours about the bank's solvency spread on social media.
+      panic_shock: 0.10
+
+slow_burn:
+  name: Slow burn
+  description: Weeks of gradual confidence erosion.
+  severity:
+    value: 1.0
+    unit: multiplier
+    source: ASSUMPTION
+  news_events:
+    - day: 10
+      headline: A rating agency places the bank on negative watch.
+      panic_shock: 0.03
