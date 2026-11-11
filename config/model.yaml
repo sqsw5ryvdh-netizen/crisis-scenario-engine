@@ -1,8 +1,116 @@
 # Model parameters. Each one has value, unit and source.
-# source: ASSUMPTION means there is no verifiable source yet.
-# The run-off, waterfall and trigger parameters are added in M1.
+# source: ASSUMPTION means there is no verifiable source yet (calibration is M5).
 
 horizon_days:
   value: 30
   unit: days
   source: docs/SPEC.md section 3.2
+
+# --- Run-off: daily base rate per deposit category (before severity and panic) ---
+base_runoff_insured_retail:
+  value: 0.003
+  unit: share of stock per day
+  source: ASSUMPTION
+base_runoff_uninsured_retail:
+  value: 0.015
+  unit: share of stock per day
+  source: ASSUMPTION
+base_runoff_corporate:
+  value: 0.020
+  unit: share of stock per day
+  source: ASSUMPTION
+base_runoff_financial:
+  value: 0.040
+  unit: share of stock per day
+  source: ASSUMPTION
+
+# --- Panic multiplier = 1 + (max - 1) * logistic(steepness * (x - midpoint)) ---
+# x = cumulative deposit loss share + news shocks to date.
+panic_max_multiplier:
+  value: 6.0
+  unit: multiplier
+  source: ASSUMPTION
+panic_steepness:
+  value: 25.0
+  unit: per unit of x
+  source: ASSUMPTION
+panic_midpoint:
+  value: 0.12
+  unit: share of initial deposits
+  source: ASSUMPTION
+# Rollover fraction of maturing wholesale funding = 1 - sensitivity * normalised panic.
+wholesale_rollover_sensitivity:
+  value: 1.5
+  unit: multiplier
+  source: ASSUMPTION
+
+# --- Funding waterfall ---
+hqla_level1_haircut:
+  value: 0.01
+  unit: share of market value
+  source: ASSUMPTION
+hqla_level2_haircut:
+  value: 0.10
+  unit: share of market value
+  source: ASSUMPTION
+central_bank_haircut:
+  value: 0.25
+  unit: share of collateral value
+  source: ASSUMPTION
+central_bank_mobilisation_lag_days:
+  value: 2
+  unit: days
+  source: ASSUMPTION
+fire_sale_discount:
+  value: 0.20
+  unit: share of book value
+  source: ASSUMPTION
+# Sale capacity added each day from day 1; unused capacity carries over.
+fire_sale_daily_cap_share:
+  value: 0.01
+  unit: share of day-0 illiquid assets per day
+  source: ASSUMPTION
+
+# --- LCR proxy: 30-day outflow rates ---
+lcr_outflow_rate_insured_retail:
+  value: 0.05
+  unit: share of stock over 30 days
+  source: ASSUMPTION
+lcr_outflow_rate_uninsured_retail:
+  value: 0.10
+  unit: share of stock over 30 days
+  source: ASSUMPTION
+lcr_outflow_rate_corporate:
+  value: 0.40
+  unit: share of stock over 30 days
+  source: ASSUMPTION
+lcr_outflow_rate_financial:
+  value: 1.00
+  unit: share of stock over 30 days
+  source: ASSUMPTION
+lcr_outflow_rate_wholesale:
+  value: 1.00
+  unit: share of funding maturing within the horizon
+  source: ASSUMPTION
+
+# --- Triggers ---
+recovery_lcr_threshold:
+  value: 1.00
+  unit: ratio
+  source: ASSUMPTION
+recovery_deposit_loss_threshold:
+  value: 0.05
+  unit: share of initial deposits
+  source: ASSUMPTION
+early_intervention_lcr_threshold:
+  value: 0.75
+  unit: ratio
+  source: ASSUMPTION
+early_intervention_cet1_margin:
+  value: 0.015
+  unit: ratio points above the capital requirement
+  source: ASSUMPTION
+resolution_funding_days:
+  value: 5
+  unit: days
+  source: ASSUMPTION

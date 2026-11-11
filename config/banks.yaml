@@ -1,6 +1,67 @@
 # Bank archetypes. All amounts are fictitious, with realistic proportions.
-# M0 ships one archetype; the other three are added in M1.
 # Equity is represented by CET1: assets = liabilities + cet1.
+# wholesale_funding.maturing: amount falling due on each simulated day (key = day).
+
+universal:
+  name: Large universal bank
+  description: Diversified group with retail, corporate and market activities and sizeable wholesale funding.
+  unit: EUR bn
+  source: ASSUMPTION
+  assets:
+    cash_reserves: 110.0
+    hqla_level1: 120.0
+    hqla_level2: 30.0
+    other_eligible_collateral: 120.0
+    illiquid_assets: 620.0
+  liabilities:
+    deposits:
+      insured_retail: 290.0
+      uninsured_retail: 100.0
+      corporate: 170.0
+      financial: 40.0
+    wholesale_funding:
+      maturing:
+        2: 5.0
+        5: 5.0
+        9: 8.0
+        14: 7.0
+        21: 10.0
+        27: 10.0
+      beyond_horizon: 205.0
+    other_liabilities: 95.0
+  capital:
+    cet1: 55.0
+    rwa: 380.0
+    capital_requirement_ratio: 0.11
+
+retail:
+  name: Mid-size retail bank
+  description: Domestic branch-based bank funded mainly by insured household deposits.
+  unit: EUR bn
+  source: ASSUMPTION
+  assets:
+    cash_reserves: 4.0
+    hqla_level1: 6.0
+    hqla_level2: 2.0
+    other_eligible_collateral: 6.0
+    illiquid_assets: 42.0
+  liabilities:
+    deposits:
+      insured_retail: 30.0
+      uninsured_retail: 8.0
+      corporate: 7.0
+      financial: 1.0
+    wholesale_funding:
+      maturing:
+        7: 0.5
+        15: 0.5
+        24: 1.0
+      beyond_horizon: 4.0
+    other_liabilities: 3.5
+  capital:
+    cet1: 4.5
+    rwa: 28.0
+    capital_requirement_ratio: 0.105
 
 digital:
   name: Digital deposit bank
@@ -31,3 +92,32 @@ digital:
     cet1: 1.5
     rwa: 8.0
     capital_requirement_ratio: 0.105
+
+specialised:
+  name: Specialised lender
+  description: Niche lender funded by a concentrated base of uninsured corporate and retail deposits.
+  unit: EUR bn
+  source: ASSUMPTION
+  assets:
+    cash_reserves: 4.0
+    hqla_level1: 6.0
+    hqla_level2: 2.0
+    other_eligible_collateral: 3.0
+    illiquid_assets: 15.0
+  liabilities:
+    deposits:
+      insured_retail: 2.0
+      uninsured_retail: 6.0
+      corporate: 13.0
+      financial: 2.0
+    wholesale_funding:
+      maturing:
+        3: 0.2
+        10: 0.2
+        18: 0.2
+      beyond_horizon: 2.4
+    other_liabilities: 1.2
+  capital:
+    cet1: 2.8
+    rwa: 17.0
+    capital_requirement_ratio: 0.11

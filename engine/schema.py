@@ -145,15 +145,81 @@ class Scenario(StrictModel):
         return self
 
 
+class ModelParams(StrictModel):
+    """All model parameters of config/model.yaml (spec sections 3.2-3.4)."""
+
+    horizon_days: Parameter
+
+    # Run-off: daily base rate per deposit category, before severity and panic.
+    base_runoff_insured_retail: Parameter
+    base_runoff_uninsured_retail: Parameter
+    base_runoff_corporate: Parameter
+    base_runoff_financial: Parameter
+
+    # Panic multiplier = 1 + (max - 1) * logistic(steepness * (x - midpoint)),
+    # x = cumulative deposit loss share + news shocks to date.
+    panic_max_multiplier: Parameter
+    panic_steepness: Parameter
+    panic_midpoint: Parameter
+    # Rollover fraction = 1 - sensitivity * normalised panic, clamped to [0, 1].
+    wholesale_rollover_sensitivity: Parameter
+
+    # Funding waterfall.
+    hqla_level1_haircut: Parameter
+    hqla_level2_haircut: Parameter
+    central_bank_haircut: Parameter
+    central_bank_mobilisation_lag_days: Parameter
+    fire_sale_discount: Parameter
+    fire_sale_daily_cap_share: Parameter
+
+    # LCR proxy: 30-day outflow rates.
+    lcr_outflow_rate_insured_retail: Parameter
+    lcr_outflow_rate_uninsured_retail: Parameter
+    lcr_outflow_rate_corporate: Parameter
+    lcr_outflow_rate_financial: Parameter
+    lcr_outflow_rate_wholesale: Parameter
+
+    # Triggers.
+    recovery_lcr_threshold: Parameter
+    recovery_deposit_loss_threshold: Parameter
+    early_intervention_lcr_threshold: Parameter
+    early_intervention_cet1_margin: Parameter
+    resolution_funding_days: Parameter
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "ModelParams":
+        for name in type(self).model_fields:
+            value = getattr(self, name).value
+            if value < 0:
+                raise ValueError(f"{name} must be >= 0")
+            is_share = name.endswith(("_haircut", "_discount", "_share")) or name.startswith(
+                ("base_runoff_", "lcr_outflow_rate_")
+            )
+            if is_share and value > 1:
+                raise ValueError(f"{name} must be <= 1")
+            if name.endswith(("_haircut", "_discount")) and value >= 1:
+                raise ValueError(f"{name} must be < 1")
+        if self.horizon_days.value < 1 or self.horizon_days.value != int(self.horizon_days.value):
+            raise ValueError("horizon_days must be a positive whole number")
+        if self.panic_max_multiplier.value < 1:
+            raise ValueError("panic_max_multiplier must be >= 1")
+        return self
+
+    def with_overrides(self, overrides: dict[str, Parameter]) -> "ModelParams":
+        data = {name: getattr(self, name) for name in type(self).model_fields}
+        data.update(overrides)
+        return ModelParams(**data)
+
+
 class Config(StrictModel):
     banks: dict[str, Bank]
-    model: dict[str, Parameter]
+    model: ModelParams
     scenarios: dict[str, Scenario]
 
     @model_validator(mode="after")
     def _check_overrides(self) -> "Config":
         for key, scenario in self.scenarios.items():
-            unknown = set(scenario.overrides) - set(self.model)
+            unknown = set(scenario.overrides) - set(ModelParams.model_fields)
             if unknown:
                 raise ValueError(
                     f"scenario '{key}' overrides unknown parameters: {sorted(unknown)}"

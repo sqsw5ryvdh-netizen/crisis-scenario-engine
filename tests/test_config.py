@@ -21,9 +21,9 @@ def bank_data() -> dict:
 
 def test_shipped_config_loads():
     config = load_config()
-    assert "digital" in config.banks
+    assert set(config.banks) == {"universal", "retail", "digital", "specialised"}
     assert {"fast_run", "slow_burn"} <= set(config.scenarios)
-    assert config.model["horizon_days"].value == 30
+    assert config.model.horizon_days.value == 30
 
 
 def test_shipped_banks_balance():
@@ -34,7 +34,7 @@ def test_shipped_banks_balance():
 
 def test_every_parameter_has_unit_and_source():
     config = load_config()
-    params = list(config.model.values())
+    params = [getattr(config.model, name) for name in type(config.model).model_fields]
     for scenario in config.scenarios.values():
         params.append(scenario.severity)
         params.extend(scenario.overrides.values())
@@ -81,6 +81,26 @@ def test_scenario_override_must_exist_in_model(tmp_path):
     }
     path.write_text(yaml.safe_dump(scenarios), encoding="utf-8")
     with pytest.raises(ValidationError, match="unknown parameters"):
+        load_config(tmp_path / "config")
+
+
+def test_model_rejects_missing_parameter(tmp_path):
+    shutil.copytree(DEFAULT_CONFIG_DIR, tmp_path / "config")
+    path = tmp_path / "config" / "model.yaml"
+    model = yaml.safe_load(path.read_text(encoding="utf-8"))
+    del model["fire_sale_discount"]
+    path.write_text(yaml.safe_dump(model), encoding="utf-8")
+    with pytest.raises(ValidationError):
+        load_config(tmp_path / "config")
+
+
+def test_model_rejects_haircut_of_one_or_more(tmp_path):
+    shutil.copytree(DEFAULT_CONFIG_DIR, tmp_path / "config")
+    path = tmp_path / "config" / "model.yaml"
+    model = yaml.safe_load(path.read_text(encoding="utf-8"))
+    model["central_bank_haircut"]["value"] = 1.0
+    path.write_text(yaml.safe_dump(model), encoding="utf-8")
+    with pytest.raises(ValidationError, match="central_bank_haircut"):
         load_config(tmp_path / "config")
 
 
