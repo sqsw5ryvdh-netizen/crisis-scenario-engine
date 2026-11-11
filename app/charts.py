@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from engine.contagion import ContagionResult
 from engine.model import SimulationResult
 
 LINE_COLOR = "#2a78d6"
@@ -159,4 +160,64 @@ def build_failure_distribution(counts: pd.DataFrame, horizon: int) -> go.Figure:
     )
     fig.update_yaxes(title_text="Number of runs", rangemode="tozero")
     fig.update_layout(height=320, showlegend=False, bargap=0.25, margin=dict(l=10, r=10, t=20, b=10))
+    return fig
+
+
+def build_contagion_chart(contagion: ContagionResult, horizon: int) -> go.Figure:
+    """Second bank with and without contagion, with the days the shocks arrive."""
+    # Levels barely move on a zero-based axis, so the chart shows the mechanism (panic
+    # multiplier) and its effect (share of deposits lost) instead.
+    panels = [
+        ("Second bank: panic multiplier", "panic_multiplier"),
+        ("Second bank: deposits lost since the start (%)", "cum_deposit_loss_pct"),
+    ]
+    runs = [
+        ("Without contagion", contagion.second_alone.table, dict(color=NEWS_COLOR, width=2, dash="dot")),
+        ("With contagion", contagion.second.table, dict(color=LINE_COLOR, width=2)),
+    ]
+    fig = make_subplots(
+        rows=len(panels),
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.12,
+        subplot_titles=[title for title, _ in panels],
+    )
+    for row, (_, column) in enumerate(panels, start=1):
+        for name, table, line in runs:
+            fig.add_trace(
+                go.Scatter(
+                    x=table["day"],
+                    y=table[column],
+                    mode="lines",
+                    name=name,
+                    legendgroup=name,
+                    showlegend=row == 1,
+                    line=line,
+                    hovertemplate=name + ", day %{x}: %{y:.2f}<extra></extra>",
+                ),
+                row=row,
+                col=1,
+            )
+        fig.update_yaxes(rangemode="tozero", row=row, col=1)
+    for index, event in enumerate(contagion.events):
+        fig.add_vline(x=event.day, line=dict(color=NEWS_COLOR, width=1, dash="dash"))
+        fig.add_annotation(
+            x=event.day,
+            y=1.08 + 0.05 * index,
+            xref="x",
+            yref="paper",
+            text=f"Day {event.day}: shock {event.panic_shock:.3f}",
+            showarrow=False,
+            xanchor="left",
+            yanchor="bottom",
+            font=dict(size=12),
+        )
+    fig.update_xaxes(range=[0, horizon], dtick=5)
+    fig.update_xaxes(title_text="Day", row=len(panels), col=1)
+    fig.update_layout(
+        height=520,
+        margin=dict(l=10, r=10, t=110, b=10),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="top", y=-0.15, x=0),
+    )
     return fig

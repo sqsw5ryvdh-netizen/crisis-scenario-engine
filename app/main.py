@@ -8,8 +8,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st  # noqa: E402
 
-from app.charts import build_failure_distribution, build_timeline  # noqa: E402
+from app.charts import (  # noqa: E402
+    build_contagion_chart,
+    build_failure_distribution,
+    build_timeline,
+)
 from engine.config import load_config  # noqa: E402
+from engine.contagion import similarity_factor, simulate_contagion  # noqa: E402
 from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx  # noqa: E402
 from engine.injects import build_script  # noqa: E402
 from engine.model import simulate, uninsured_share, with_uninsured_share  # noqa: E402
@@ -69,10 +74,16 @@ config = get_config()
 with st.sidebar:
     st.header("Scenario")
     bank_key = st.selectbox(
-        "Bank archetype", list(config.banks), format_func=lambda k: config.banks[k].name
+        "Bank archetype",
+        list(config.banks),
+        format_func=lambda k: config.banks[k].name,
+        key="bank",
     )
     scenario_key = st.selectbox(
-        "Trigger scenario", list(config.scenarios), format_func=lambda k: config.scenarios[k].name
+        "Trigger scenario",
+        list(config.scenarios),
+        format_func=lambda k: config.scenarios[k].name,
+        key="scenario",
     )
     bank = config.banks[bank_key]
     scenario = config.scenarios[scenario_key]
@@ -229,3 +240,63 @@ for key_day in script.key_days:
                     f"- **What you see:** {inject.sees}\n"
                     f"- **Decision due:** {inject.decision}"
                 )
+
+st.subheader("Contagion to a second bank")
+st.caption(
+    "A second bank in calm conditions is hit by news about the first bank, one day after "
+    "each trigger stage. The shock is scaled by how similar the two banks are."
+)
+second_column, country_column = st.columns(2)
+second_key = second_column.selectbox(
+    "Second bank archetype",
+    list(config.banks),
+    index=list(config.banks).index(bank_key),
+    format_func=lambda k: config.banks[k].name,
+    # Keyed by the first bank, so it goes back to "same archetype" when the first bank changes.
+    key=f"second_bank:{bank_key}",
+)
+same_country = country_column.checkbox(
+    "Same country as the first bank", value=True, key="same_country"
+)
+similarity = similarity_factor(second_key == bank_key, same_country, config.model)
+contagion = simulate_contagion(
+    bank, scenario, config.banks[second_key], config.scenarios["baseline"], config.model, similarity
+)
+
+
+def _outcome(run) -> str:
+    stage = run.table["status"].iloc[-1].replace("_", " ")
+    if run.failure_day is not None:
+        return f"Fails day {run.failure_day}"
+    return f"No failure ({stage})"
+
+
+similarity_metric, alone_metric, hit_metric = st.columns(3)
+similarity_metric.metric(
+    "Similarity",
+    f"{similarity:.0%}",
+    help="Same archetype and same country each add to the similarity. At 0% nothing spreads.",
+)
+alone_metric.metric(
+    "Second bank deposit loss, without contagion",
+    f"{contagion.second_alone.table['cum_deposit_loss_pct'].iloc[-1]:.1f}%",
+    help=_outcome(contagion.second_alone),
+)
+hit_metric.metric(
+    "Second bank deposit loss, with contagion",
+    f"{contagion.second.table['cum_deposit_loss_pct'].iloc[-1]:.1f}%",
+    help=_outcome(contagion.second),
+)
+st.write(
+    f"Outcome for the second bank: **{_outcome(contagion.second)}** with contagion, "
+    f"**{_outcome(contagion.second_alone)}** without."
+)
+if contagion.events:
+    st.plotly_chart(build_contagion_chart(contagion, horizon), width="stretch")
+    for event in contagion.events:
+        st.markdown(f"- Day {event.day}: {event.headline}")
+else:
+    st.info(
+        "Nothing spreads to the second bank: either the two banks have no similarity, "
+        "or the first bank reaches no trigger stage."
+    )

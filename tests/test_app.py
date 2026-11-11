@@ -88,7 +88,10 @@ def test_timeline_without_triggers_has_no_markers():
 def test_app_runs_and_shows_selectors_sliders_chart_and_table():
     at = AppTest.from_file(APP_PATH).run(timeout=30)
     assert not at.exception
-    assert [box.label for box in at.selectbox] == ["Bank archetype", "Trigger scenario"]
+    assert sorted(box.label for box in at.selectbox) == [
+        "Bank archetype", "Second bank archetype", "Trigger scenario",
+    ]
+    assert [box.label for box in at.checkbox] == ["Same country as the first bank"]
     assert len(at.slider) == 6
     assert [n.label for n in at.number_input] == ["Random seed"]
     assert [metric.label for metric in at.metric][0] == "Failure day"
@@ -99,8 +102,8 @@ def test_app_runs_and_shows_selectors_sliders_chart_and_table():
 
 def test_moving_a_slider_reruns_in_under_one_second_and_shifts_failure_day():
     at = AppTest.from_file(APP_PATH).run(timeout=30)
-    at.selectbox[0].set_value("digital")
-    at.selectbox[1].set_value("fast_run")
+    at.selectbox(key="bank").set_value("digital")
+    at.selectbox(key="scenario").set_value("fast_run")
     at.run(timeout=30)
     before = at.metric[0].value
     slider = next(s for s in at.slider if s.label.startswith("Uninsured deposits"))
@@ -116,7 +119,24 @@ def test_every_bank_and_scenario_renders():
     at = AppTest.from_file(APP_PATH).run(timeout=30)
     for bank_key in CONFIG.banks:
         for scenario_key in CONFIG.scenarios:
-            at.selectbox[0].set_value(bank_key)
-            at.selectbox[1].set_value(scenario_key)
+            at.selectbox(key="bank").set_value(bank_key)
+            at.selectbox(key="scenario").set_value(scenario_key)
             at.run(timeout=30)
             assert not at.exception, (bank_key, scenario_key)
+
+
+def test_contagion_section_reacts_to_the_country_checkbox():
+    at = AppTest.from_file(APP_PATH).run(timeout=30)
+    at.selectbox(key="bank").set_value("digital")
+    at.selectbox(key="scenario").set_value("fast_run")
+    at.run(timeout=30)
+    similarity = next(m for m in at.metric if m.label == "Similarity")
+    assert similarity.value == "100%"
+    hit = next(m for m in at.metric if m.label.endswith("with contagion")).value
+    at.checkbox(key="same_country").set_value(False).run(timeout=30)
+    assert not at.exception
+    assert next(m for m in at.metric if m.label == "Similarity").value == "50%"
+    assert next(m for m in at.metric if m.label.endswith("with contagion")).value != hit
+    at.selectbox(key="second_bank:digital").set_value("retail").run(timeout=30)
+    assert next(m for m in at.metric if m.label == "Similarity").value == "0%"
+    assert len(at.info) == 1

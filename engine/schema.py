@@ -193,6 +193,14 @@ class ModelParams(StrictModel):
     early_intervention_cet1_margin: Parameter
     resolution_funding_days: Parameter
 
+    # Contagion: panic shock received by a second bank when the first bank reaches a
+    # trigger stage, at similarity 1; and the similarity added by each shared feature.
+    contagion_shock_recovery: Parameter
+    contagion_shock_early_intervention: Parameter
+    contagion_shock_failure: Parameter
+    contagion_similarity_same_archetype: Parameter
+    contagion_similarity_same_country: Parameter
+
     # Monte Carlo defaults.
     monte_carlo_runs: Parameter
     monte_carlo_seed: Parameter
@@ -219,6 +227,12 @@ class ModelParams(StrictModel):
                 raise ValueError(f"{name} must be a whole number")
         if self.monte_carlo_runs.value < 1:
             raise ValueError("monte_carlo_runs must be >= 1")
+        similarity = (
+            self.contagion_similarity_same_archetype.value
+            + self.contagion_similarity_same_country.value
+        )
+        if similarity > 1:
+            raise ValueError("contagion similarity components must add up to at most 1")
         if self.wholesale_rollover_cap.value > 1:
             raise ValueError("wholesale_rollover_cap must be <= 1")
         start = self.payment_outage_start_day.value

@@ -160,6 +160,31 @@ resolution_funding_days:
   unit: days
   source: ASSUMPTION
 
+# --- Contagion to a second bank ---
+# Shock added to the second bank's panic input one day after the first bank reaches each
+# trigger stage, at similarity 1. The actual shock is this value x similarity.
+contagion_shock_recovery:
+  value: 0.03
+  unit: added to the panic input
+  source: ASSUMPTION
+contagion_shock_early_intervention:
+  value: 0.06
+  unit: added to the panic input
+  source: ASSUMPTION
+contagion_shock_failure:
+  value: 0.12
+  unit: added to the panic input
+  source: ASSUMPTION
+# Similarity = sum of the components that apply (0 = unrelated banks, no contagion).
+contagion_similarity_same_archetype:
+  value: 0.5
+  unit: similarity
+  source: ASSUMPTION
+contagion_similarity_same_country:
+  value: 0.5
+  unit: similarity
+  source: ASSUMPTION
+
 # --- Monte Carlo ---
 monte_carlo_runs:
   value: 500

@@ -108,3 +108,14 @@ geopolitical:
     - day: 6
       headline: Press reports the bank's exposure to the affected region.
       panic_shock: 0.04
+
+baseline:
+  name: Baseline (no own trigger)
+  description: Calm conditions with no news; used for a second bank that is only exposed to contagion.
+  severity:
+    value: 0.05
+    low: 0.02
+    high: 0.1
+    unit: multiplier
+    source: ASSUMPTION
+  news_events: []
