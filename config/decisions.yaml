@@ -1,8 +1,8 @@
 # Decision points (SPEC_V2 phase B). Decisions are data: who decides, from when, the options
 # and the effect of each option on the model.
 #
-# Timing: a decision is taken after the close of a day, on that day's figures, and is in
-# effect `lead_days` later. A decision scheduled before its condition holds is taken at the
+# Timing: a decision is taken after the close of a day and is in effect `lead_days` later.
+# An actor cannot decide before it is informed (see `information`). A decision scheduled before its condition holds is taken at the
 # first later close at which the condition holds.
 #
 # condition: stage (reached or passed), after / after_option (another decision taken),
@@ -22,14 +22,42 @@ payout_days_unprepared:
   unit: days
   source: ASSUMPTION
 
-# Figures each actor has at the close of the day it decides (written into the decision log).
-# The same day's figures for everyone for now; lags and scopes come with phase D.
-actor_figures:
-  bank_management: [deposits_total, cum_deposit_loss_pct, outflow_total, liquidity_buffer, survival_days, cet1_ratio]
-  competent_authority: [cum_deposit_loss_pct, liquidity_buffer, survival_days, lcr_proxy, cet1_ratio, cet1_ratio_projected]
-  central_bank: [liquidity_buffer, unencumbered_collateral, central_bank_funding, ela_funding, illiquid_assets, cet1_ratio]
-  resolution_authority: [deposits_total, cum_deposit_loss_pct, survival_days, cet1_ratio, central_bank_funding, ela_funding]
-  deposit_guarantee_scheme: [dep_insured_retail, cum_deposit_loss_pct]
+# What each actor knows and how late (SPEC_V2 phase D). Used for the decision log and for the
+# exercise script: a participant's document only shows figures from its own set, at their age.
+# - source: who the information comes from, as named in the script.
+# - lag_days: age of the figures (0 = same day, 1 = the previous day's close). Delays are in
+#   whole days until intraday views exist.
+# - informed_from: the actor receives nothing before this stage is reached.
+# - faster: a decision option that shortens the delay from the day it is in effect.
+# Stage changes, payments default, FOLTF and resolution are notified the same day to every
+# actor that is already informed; only the figures are delayed. All ASSUMPTION.
+information:
+  bank_management:
+    source: the bank's own treasury and risk functions
+    lag_days: 0
+    figures: [deposits_total, cum_deposit_loss_pct, outflow_total, queued_withdrawals, liquidity_buffer, survival_days, lcr_proxy, cet1_ratio, unencumbered_collateral, central_bank_funding, ela_funding, loss]
+  competent_authority:
+    source: the bank's supervisory reporting
+    lag_days: 1
+    faster:
+      decision: early_intervention_measures
+      option: enhanced_reporting
+      lag_days: 0
+    figures: [deposits_total, cum_deposit_loss_pct, outflow_total, liquidity_buffer, survival_days, lcr_proxy, cet1_ratio, cet1_ratio_projected]
+  central_bank:
+    source: the central bank's own payment and collateral records
+    lag_days: 0
+    figures: [outflow_total, unencumbered_collateral, central_bank_funding, ela_funding, illiquid_assets]
+  resolution_authority:
+    source: the competent authority
+    lag_days: 1
+    informed_from: early_intervention
+    figures: [deposits_total, cum_deposit_loss_pct, survival_days, cet1_ratio, central_bank_funding, ela_funding]
+  deposit_guarantee_scheme:
+    source: the resolution authority
+    lag_days: 1
+    informed_from: likely_to_fail
+    figures: [dep_insured_retail, cum_deposit_loss_pct]
 
 decisions:
   public_statement:

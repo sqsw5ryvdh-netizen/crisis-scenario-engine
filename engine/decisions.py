@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from engine.schema import DecisionPath
+from engine.schema import ActorInformation, DecisionPath
 
 # The bank is still open at the end of the horizon:
 OUTCOME_STABILISED = "stabilised"  # flag conditions gone, positive buffer, outflows near zero
@@ -47,7 +47,9 @@ class DecisionRecord:
     scheduled_day: int
     decided_day: int  # taken after the close of this day
     effect_day: int  # in effect from this day
-    figures: tuple[tuple[str, float], ...]  # what the actor had at the close of decided_day
+    # What the actor had when it decided: its own figures, at the age its delay implies.
+    figures: tuple[tuple[str, float], ...]
+    figures_as_of: int = 0  # the day those figures refer to
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,13 @@ class Scorecard:
     queued_withdrawals: float  # requested but not paid (moratorium or outage), still in the bank
     dgs_payout: float
     payout_days: Optional[int]  # days until covered depositors are paid; None if no payout
+
+
+def lag_days(information: ActorInformation, day: int, faster_from: Optional[int]) -> int:
+    """Age of an actor's figures on `day`; shorter once faster reporting is in effect."""
+    if information.faster is not None and faster_from is not None and day >= faster_from:
+        return information.faster.lag_days
+    return information.lag_days
 
 
 def choices_of(path: DecisionPath) -> tuple[Choice, ...]:
@@ -132,6 +141,7 @@ def decision_log_rows(log: tuple[DecisionRecord, ...], unit: str) -> list[dict[s
             "Option": record.option_name,
             "Decided after close of day": record.decided_day,
             "In effect from day": record.effect_day,
+            "Figures as of day": record.figures_as_of,
             "Figures available at decision time": "; ".join(
                 format_figure(name, value, unit) for name, value in record.figures
             ),

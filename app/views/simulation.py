@@ -24,9 +24,9 @@ from engine.decisions import (
     decision_log_rows,
     scorecard_rows,
 )
-from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx
-from engine.injects import build_script
+from engine.export import pack_to_zip
 from engine.model import simulate, uninsured_share, with_uninsured_share
+from engine.script import build_pack
 from engine.montecarlo import (
     bands,
     describe_failure_day,
@@ -526,41 +526,71 @@ if uncertainty_tab.open:
 
 if script_tab.open:
     with script_tab:
+        paths = config.decisions.paths
         st.subheader("Exercise script")
-        script = build_script(bank, config.model, scenario, result, config.injects)
-        st.write(script.summary)
-        stem = f"{bank_key}_{scenario_key}"
+        st.caption(
+            "One document per actor, with only what that actor knows and when it knows it, "
+            "plus a facilitator pack with full information. Wording is a draft."
+        )
+        other_key = st.selectbox(
+            "Second branch of the script",
+            list(paths),
+            index=list(paths).index(config.decisions.default_path),
+            format_func=lambda k: paths[k].name,
+            key="script_branch",
+            help="The script covers this path and the one selected in the sidebar.",
+        )
+        other_choices = choices_of(paths[other_key])
+        branches = [("Path selected in the sidebar", choices)]
+        if tuple(other_choices) != tuple(choices):
+            branches.insert(0, (paths[other_key].name, other_choices))
+        else:
+            st.info("Both branches are the same path: the script has a single branch.")
+        pack = build_pack(bank, config.model, scenario, config.decisions, config.script, branches)
         with st.container(key="ctl_export"):
-            docx_button, injects_button, data_button = st.columns(3)
-            docx_button.download_button(
-                "Download script (.docx)",
-                data=script_to_docx(script),
-                file_name=f"exercise_script_{stem}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            st.download_button(
+                "Download the exercise pack (.zip)",
+                data=pack_to_zip(pack, config.script, config.decisions),
+                file_name=f"exercise_pack_{bank_key}_{scenario_key}.zip",
+                mime="application/zip",
             )
-            injects_button.download_button(
-                "Download injects (.csv)",
-                data=injects_to_csv(script),
-                file_name=f"injects_{stem}.csv",
-                mime="text/csv",
-            )
-            data_button.download_button(
-                "Download daily data (.csv)",
-                data=daily_table_to_csv(result),
-                file_name=f"daily_table_{stem}.csv",
-                mime="text/csv",
-            )
-        for key_day in script.key_days:
-            titles = "; ".join(event.title for event in key_day.events)
-            with st.expander(f"Day {key_day.day}: {titles}"):
-                for event in key_day.events:
-                    st.markdown(f"**{event.title}**")
-                    st.write(event.situation)
-                    for inject in event.injects:
+        st.caption(
+            "The zip holds five participant documents (.docx), the facilitator pack (.docx) "
+            "and the data (.csv): injects, decision points, decision log, daily tables."
+        )
+        actor = st.selectbox(
+            "Preview the document of",
+            [document.actor for document in pack.documents],
+            format_func=lambda k: config.script.actors[k],
+            key="script_actor",
+        )
+        document = next(d for d in pack.documents if d.actor == actor)
+        for sentence in document.information:
+            st.markdown(f"- {sentence}")
+        sections = [("Shared part" if document.branches else "Injects", document.shared)]
+        sections += list(document.branches)
+        for title, injects in sections:
+            st.markdown(f"**{title}**")
+            if not injects:
+                st.caption("Nothing further on this branch.")
+            for inject in injects:
+                when = f"Day {inject.day}" + (f", {inject.weekday}" if inject.weekday else "")
+                with st.expander(f"{when}, {inject.time} - {inject.title}"):
+                    st.markdown(f"*From: {inject.sender}*")
+                    st.write(inject.text)
+                    if inject.figures:
+                        st.caption(f"Figures as of the close of day {inject.figures[0].as_of_day}")
+                        for figure in inject.figures:
+                            st.markdown(f"- {figure.text}")
+                    due = inject.decision_due
+                    if due is not None:
+                        st.markdown(f"**Question:** {due.question}")
+                        for option in due.options:
+                            st.markdown(f"- `{option.branch_code}` {option.name}")
                         st.markdown(
-                            f"*{inject.actor_name}*\n\n"
-                            f"- **What you see:** {inject.sees}\n"
-                            f"- **Decision due:** {inject.decision}"
+                            f"**Decide by** the close of day {due.deadline_day}. "
+                            f"**Consult first:** {', '.join(due.consult) or 'nobody'}. "
+                            f"**Inform afterwards:** {', '.join(due.inform) or 'nobody'}."
                         )
 
 

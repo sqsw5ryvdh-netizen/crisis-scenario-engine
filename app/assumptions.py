@@ -139,6 +139,28 @@ def decision_table(config: Config) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["Decision"] + COLUMNS)
 
 
+def information_table(config: Config) -> pd.DataFrame:
+    """What each actor knows and how late (config/decisions.yaml). All assumptions."""
+    rows = []
+    for actor, info in config.decisions.information.items():
+        faster = ""
+        if info.faster is not None:
+            option = config.decisions.decisions[info.faster.decision].options[info.faster.option]
+            faster = f"{info.faster.lag_days} after: {option.name}"
+        rows.append(
+            {
+                "Status": FLAG,
+                "Actor": config.script.actors[actor],
+                "Figures from": info.source,
+                "Delay (days)": info.lag_days,
+                "Shorter delay": faster,
+                "Informed from": info.informed_from or "the start",
+                "Figures": ", ".join(info.figures),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def assumption_counts(*tables: pd.DataFrame) -> tuple[int, int]:
     """(number of rows flagged ASSUMPTION, total rows) across the tables."""
     flagged = sum(int((table["Status"] == FLAG).sum()) for table in tables)

@@ -117,7 +117,7 @@ def test_app_opens_on_the_demo_selection_with_selectors_sliders_and_timeline():
         (demo.TAB_FUNDING, lambda at: len(at.dataframe) == 1),
         (demo.TAB_UNCERTAINTY, lambda at: any(
             h.value == "Payments default day distribution" for h in at.subheader)),
-        (demo.TAB_SCRIPT, lambda at: len(at.expander) >= 2 and len(at.get("download_button")) == 3),
+        (demo.TAB_SCRIPT, lambda at: len(at.expander) >= 2 and len(at.get("download_button")) == 1),
         (demo.TAB_CONTAGION, lambda at: at.checkbox(key="same_country").value is True),
     ],
 )
@@ -282,7 +282,7 @@ def test_full_demo_walk_forward_and_back(monkeypatch):
     at.button(key="demo_next").click().run(timeout=30)
     assert "step 6 of 6: Export" in _panel_title(at)
     assert at.session_state["view"] == demo.TAB_SCRIPT
-    assert len(at.get("download_button")) == 3
+    assert len(at.get("download_button")) == 1
     assert at.button(key="demo_next").disabled
 
     at.button(key="demo_back").click().run(timeout=30)

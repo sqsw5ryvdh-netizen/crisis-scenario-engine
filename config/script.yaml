@@ -1,0 +1,139 @@
+# Exercise script (SPEC_V2 phase D): texts, clock times and coordination steps.
+#
+# No text here may carry a figure. Every number in a participant's document is added by the
+# engine from that participant's information set (config/decisions.yaml, `information`).
+# The placeholders each text may use are fixed in engine/schema.py (SCRIPT_TEXTS).
+#
+# DRAFT: all wording, the coordination steps and the debrief questions were drafted for this
+# prototype and have not been reviewed by a practitioner. They contain no legal references.
+
+draft_notice: >-
+  Draft wording. The texts, the coordination steps and the debrief questions in this document
+  were written for a prototype and have not been reviewed by a practitioner. They contain no
+  legal references.
+
+disclaimer: >-
+  The bank in this script is fictitious. All figures are produced by a simplified simulation
+  model whose parameters are assumptions, not calibrated estimates. The script is a training
+  aid for crisis simulation exercises and does not describe any real institution.
+
+actors:
+  competent_authority: Competent authority
+  resolution_authority: Resolution authority
+  central_bank: Central bank
+  deposit_guarantee_scheme: Deposit guarantee scheme
+  bank_management: Bank management
+
+# Time of day shown on each kind of inject. Labels only: the model works in whole days.
+clock:
+  opening: "08:00"
+  news: "09:00"
+  stage: "18:00"
+  decision_due: "18:30"
+  decision_taken: "08:00"
+  end: "18:00"
+
+# How long a decision stays open when the path without decisions has no payments default.
+decision_window_days:
+  value: 2
+  unit: days
+  source: ASSUMPTION
+
+texts:
+  opening: >-
+    The exercise starts. {bank_name} is operating normally.
+  news: "Public news: {headline}"
+  recovery: >-
+    Notification from {sender}: {bank_name} has breached a recovery indicator.
+  early_intervention: >-
+    Notification from {sender}: the conditions for early intervention at {bank_name} are met.
+  likely_to_fail: >-
+    Notification from {sender}: on current trends {bank_name} is likely to fail. Its
+    liquidity or its capital is about to run out. It is still paying its obligations.
+  failure: >-
+    Notification from {sender}: {bank_name} could not pay its obligations in full today.
+  foltf: >-
+    {bank_name} has been declared failing or likely to fail by the competent authority.
+  resolution: >-
+    The exercise ends today for {bank_name}. Outcome: {outcome}.
+  decision_taken: >-
+    {decider} has decided on "{decision_name}": {option_name}. In effect from day
+    {effect_day}.
+  decision_due: >-
+    A decision is now open to you: {decision_name}.
+  end_open: >-
+    The exercise ends after {horizon_days} days. {bank_name} is still open.
+
+# One question per decision, put to the actor that decides.
+questions:
+  public_statement: What would you say in public, and what would you leave out? Who needs to see the statement before it goes out?
+  recovery_options: Which recovery options can still be carried out in the time you have? What would a sale cost, and how soon would the cash arrive?
+  early_intervention_measures: Is the bank's own response adequate? Which measure would change the situation in the time available?
+  declare_foltf: Is the bank failing or likely to fail on what you know now? What would you still need to know, and what does waiting cost?
+  ela: Is the bank solvent on what you know? Against which collateral would you lend, how much, and for how long?
+  moratorium: Would suspending payments protect value or deepen the loss of confidence? What must be ready before the suspension ends?
+  resolution_tool: Is resolution in the public interest? Which tool fits this bank, and what does each need to be in place?
+  prepare_payout: What must be ready to pay covered depositors quickly? Which data do you need from the bank, and from whom do you get them?
+  dgs_payout: Are you ready to pay? How will depositors be told, and how is the payout funded?
+
+# Coordination steps for each decision: who the deciding actor should consult before, and
+# inform after. A draft for discussion in the exercise, not a statement of legal duties.
+coordination:
+  public_statement:
+    consult: [competent_authority]
+    inform: [competent_authority, central_bank]
+  recovery_options:
+    consult: []
+    inform: [competent_authority]
+  early_intervention_measures:
+    consult: [resolution_authority]
+    inform: [bank_management, resolution_authority, central_bank]
+  declare_foltf:
+    consult: [resolution_authority, central_bank]
+    inform: [bank_management, resolution_authority, central_bank, deposit_guarantee_scheme]
+  ela:
+    consult: [competent_authority]
+    inform: [bank_management, competent_authority, resolution_authority]
+  moratorium:
+    consult: [competent_authority, central_bank]
+    inform: [bank_management, competent_authority, central_bank, deposit_guarantee_scheme]
+  resolution_tool:
+    consult: [competent_authority, central_bank, deposit_guarantee_scheme]
+    inform: [bank_management, competent_authority, central_bank, deposit_guarantee_scheme]
+  prepare_payout:
+    consult: [resolution_authority]
+    inform: [resolution_authority, competent_authority]
+  dgs_payout:
+    consult: [resolution_authority]
+    inform: [bank_management, competent_authority, resolution_authority]
+
+debrief:
+  - Who knew what, and when? Where did an authority decide on figures that were already out of date?
+  - Which decision came too late to matter, and what would have been needed to take it a day earlier?
+  - Were the consult and inform steps followed? Which one was skipped under time pressure, and did it matter?
+  - Did the authorities have a shared view of the bank's remaining liquidity? If not, whose figures differed and why?
+  - What was communicated to the public and to depositors, by whom, and was it consistent across authorities?
+  - Looking at the other branch, which single decision changed the outcome most?
+  - Which information that nobody had would have changed a decision?
+
+glossary:
+  - term: Liquidity buffer
+    definition: Cash and central bank reserves, plus liquid securities valued after a haircut, plus central bank funding that is already usable.
+  - term: Survival horizon
+    definition: The number of days the liquidity buffer would last if outflows continued at the current day's speed.
+  - term: LCR proxy
+    definition: A simplified liquidity coverage ratio. Cash and liquid securities divided by the outflows expected over 30 days of stress.
+  - term: CET1 ratio
+    definition: The bank's highest-quality capital divided by its risk-weighted assets. It must stay above the capital requirement.
+  - term: ELA
+    definition: Emergency liquidity assistance. Central bank lending against wider collateral than usual, to a bank judged solvent.
+  - term: FOLTF
+    definition: Failing or likely to fail. The formal declaration, by the competent authority, that opens the way to resolution or liquidation.
+  - term: Likely to fail (warning)
+    definition: A warning computed by the model when liquidity covers only a few days of outflows or capital is projected below the requirement. It is not the formal declaration.
+  - term: Moratorium
+    definition: A short suspension of the bank's payments, decided by the resolution authority after FOLTF.
+  - term: Covered deposits
+    definition: Deposits protected by the deposit guarantee scheme. In this model they are the insured retail deposits.
+  - term: Branch
+    definition: One way the exercise can continue after a decision. Each option of a decision carries a branch code; the facilitator pack says where each branch leads.

@@ -9,10 +9,10 @@ from typing import Optional, Sequence
 
 from engine.config import DEFAULT_CONFIG_DIR, load_config
 from engine.decisions import OPEN_OUTCOMES, OUTCOME_LABELS, choices_of, decision_log_rows, scorecard_rows
-from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx
-from engine.injects import build_script
+from engine.export import pack_files, pack_to_zip
 from engine.model import SimulationResult, simulate
 from engine.montecarlo import describe_failure_day, run_monte_carlo, summarise
+from engine.script import build_pack
 
 # column in the result table -> (header, format)
 _COLUMNS = {
@@ -60,7 +60,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--scenario", required=True, help="scenario key in config/scenarios.yaml")
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
     parser.add_argument(
-        "--export-dir", type=Path, help="write the exercise script (.docx) and data (.csv) here"
+        "--export-dir", type=Path,
+        help="write the exercise pack here: one document per actor, facilitator pack, data",
+    )
+    parser.add_argument(
+        "--compare-path",
+        help="second branch of the exercise pack (default: authorities act late)",
     )
     parser.add_argument(
         "--path", help="decision path in config/decisions.yaml (default: authorities act late)"
@@ -149,18 +154,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
 
     if args.export_dir is not None:
-        script = build_script(bank, config.model, scenario, result, config.injects)
-        stem = f"{args.bank}_{args.scenario}"
-        files = {
-            f"exercise_script_{stem}.docx": script_to_docx(script),
-            f"injects_{stem}.csv": injects_to_csv(script),
-            f"daily_table_{stem}.csv": daily_table_to_csv(result),
-        }
+        other_key = args.compare_path or config.decisions.default_path
+        if other_key not in config.decisions.paths:
+            parser.error(
+                f"unknown path '{other_key}'. Available: {', '.join(config.decisions.paths)}"
+            )
+        branches = [(path.name, choices)]
+        if other_key != path_key:
+            other = config.decisions.paths[other_key]
+            branches.insert(0, (other.name, choices_of(other)))
+        pack = build_pack(bank, config.model, scenario, config.decisions, config.script, branches)
+        stem = f"exercise_pack_{args.bank}_{args.scenario}"
         args.export_dir.mkdir(parents=True, exist_ok=True)
+        archive = args.export_dir / f"{stem}.zip"
+        archive.write_bytes(pack_to_zip(pack, config.script, config.decisions))
         print()
-        for name, content in files.items():
-            (args.export_dir / name).write_bytes(content)
-            print(f"Exported {args.export_dir / name}")
+        print(f"Exported {archive}")
+        for name, content in pack_files(pack, config.script, config.decisions).items():
+            target = args.export_dir / stem / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+            print(f"Exported {target}")
     return 0
 
 

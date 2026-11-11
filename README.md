@@ -34,8 +34,7 @@ outlines the control to use. Next and Back move between steps; Exit demo leaves 
    pay its obligations on day 2. Play replays it; the day slider stops on a day.
 5. **Move a slider.** Lower Uninsured deposits from 45% to 30%: the payments default moves
    from day 2 to day 5, and the line under the figure states the change.
-6. **Export the exercise script.** Download it as a Word document, with the injects and
-   the daily data as CSV files.
+6. **Export the exercise script.** Download the exercise pack as one zip.
 
 Outside the guide, the app recalculates on every change. The other tabs show how each
 day's outflow was funded, the spread of failure days over 500 runs with uncertain
@@ -52,6 +51,25 @@ one: chart, outcome scorecard side by side, and the decision log with the figure
 actor had when it decided. Decisions and their effects are defined in
 `config/decisions.yaml`.
 
+## Exercise script
+
+The Exercise script tab builds a pack for two branches: the path selected in the sidebar
+and a second one. The zip contains:
+
+- **one Word document per actor** (competent authority, resolution authority, central bank,
+  deposit guarantee scheme, bank management). Each shows only what that actor knows, when it
+  knows it: the resolution authority hears nothing before early intervention and then gets
+  figures that are one day old; the bank's management has same-day figures. Each inject has
+  a day and time, a sender, the actor's own figures, and for a decision: the options with a
+  branch code, a deadline, and who to consult and inform. A shared part comes first, then
+  one section per branch.
+- **a facilitator pack** with full information: both branches day by day, every decision
+  point and where each option leads, the expected coordination steps and debrief questions.
+- **data files** (.csv): all injects, decision points, the decision log and the daily tables.
+
+Who sees what is set in `config/decisions.yaml` (`information`); the wording, clock times
+and coordination steps are in `config/script.yaml`. All of it is a draft.
+
 ## Command line
 
 ```bash
@@ -59,8 +77,8 @@ actor had when it decided. Decisions and their effects are defined in
 ```
 
 This prints the daily table. Add `--path early_foltf` to follow a decision path,
-`--runs 500` for the uncertainty ranges and `--export-dir exports` to write the script and
-the data files.
+`--runs 500` for the uncertainty ranges and `--export-dir exports` to write the exercise
+pack (with `--compare-path` for the second branch).
 
 ## Tests
 
@@ -70,7 +88,7 @@ the data files.
 
 ## Layout
 
-- `engine/`: the model, in pure Python (simulation, Monte Carlo, contagion, exercise script, export).
+- `engine/`: the model, in pure Python (simulation, decisions, Monte Carlo, contagion, exercise script, export).
 - `config/`: every parameter, bank, scenario, decision and script template, each with a unit and a source.
 - `app/`: the Streamlit app. It only calls the engine.
 - `scripts/calibrate_te2025.py`: rebuilds the calibrated bank proportions from the EBA file.
@@ -100,10 +118,13 @@ the data files.
   is a stable core. The shares are assumptions.
 - **Decision effects are assumptions**, including how fast a scenario's pressure eases.
   Bail-in and sale of business are outcome labels only: the model does not yet compute
-  losses for creditors. The exported script does not mention decisions yet.
+  losses for creditors.
+- **The exercise script is a draft.** Its wording, coordination steps, deadlines and
+  information delays were written for this prototype, contain no legal references and have
+  not been reviewed by a practitioner. Delays are whole days and weekdays are labels only:
+  there are no weekend rules or intraday figures yet.
 - **Daily steps only.** A run that happens within hours is shown as one day.
 - **Contagion is one-way** and works through news only: the second bank never affects the first.
-- **The wording of the exercise script is a draft** and contains no legal references.
 
 ## Data
 

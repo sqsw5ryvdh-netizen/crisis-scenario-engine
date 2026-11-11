@@ -70,8 +70,8 @@ DEMO_STEPS = (
     ),
     DemoStep(
         "Export the exercise script",
-        "Download the script as a Word document: for each key day, what each authority sees "
-        "and which decision is due.",
+        "Download the exercise pack: one document per authority, with only what it knows and "
+        "the decisions open to it, plus a facilitator pack with full information.",
         "ctl_export",
         TAB_SCRIPT,
     ),

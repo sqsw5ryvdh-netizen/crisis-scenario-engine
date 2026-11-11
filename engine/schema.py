@@ -165,6 +165,9 @@ class NewsEvent(StrictModel):
     panic_shock: float
 
 
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
 class SeverityFade(StrictModel):
     """The scenario's pressure eases once its trigger is over.
 
@@ -201,6 +204,8 @@ class Scenario(StrictModel):
     severity: Parameter
     # Optional: the pressure eases after the trigger is over (none = constant severity).
     fade: Optional[SeverityFade] = None
+    # Weekday of day 1. Used for labels in the exercise script only (no calendar rules yet).
+    start_weekday: str = "Monday"
     # Parameter values that replace those of model.yaml for this scenario.
     overrides: dict[str, Parameter] = Field(default_factory=dict)
     news_events: list[NewsEvent] = Field(default_factory=list)
@@ -209,7 +214,13 @@ class Scenario(StrictModel):
     def _check_severity(self) -> "Scenario":
         if self.severity.value < 0:
             raise ValueError("severity must be >= 0")
+        if self.start_weekday not in WEEKDAYS:
+            raise ValueError(f"start_weekday must be one of {list(WEEKDAYS)}")
         return self
+
+    def weekday(self, day: int) -> str:
+        """Weekday of simulated day `day` (day 1 is the start weekday; day 0 the day before)."""
+        return WEEKDAYS[(WEEKDAYS.index(self.start_weekday) + day - 1) % 7]
 
 
 class ModelParams(StrictModel):
@@ -347,135 +358,6 @@ ACTORS = (
     "deposit_guarantee_scheme",
     "bank_management",
 )
-# Key events an exercise script can contain, in the order they are shown within a day.
-INJECT_EVENTS = (
-    "opening",
-    "outage_start",
-    "outage_end",
-    "news",
-    "first_hqla_sale",
-    "first_central_bank",
-    "first_fire_sale",
-    "recovery",
-    "early_intervention",
-    "likely_to_fail",
-    "failure",
-    "end_no_failure",
-)
-# Placeholders a template may use; the inject generator fills them with simulated numbers.
-INJECT_FIELDS = (
-    "bank_name",
-    "scenario_name",
-    "unit",
-    "day",
-    "headline",
-    "trigger_reason",
-    "deposits_total",
-    "insured_deposits",
-    "deposit_loss_pct",
-    "outflow_today",
-    "queued_withdrawals",
-    "liquidity_buffer",
-    "lcr_pct",
-    "survival_days",
-    "cet1_ratio_pct",
-    "cet1_requirement_pct",
-    "unencumbered_collateral",
-    "central_bank_funding",
-    "central_bank_drawn_today",
-    "hqla_sold_today",
-    "fire_sale_today",
-    "loss_today",
-    "unmet_outflow",
-    "funding_need",
-    "funding_need_days",
-    "failure_day",
-    "horizon_days",
-    "outcome",
-)
-
-
-def _check_placeholders(text: str) -> str:
-    for _, field, spec, conversion in Formatter().parse(text):
-        if field is None:
-            continue
-        if field not in INJECT_FIELDS:
-            raise ValueError(f"unknown placeholder '{{{field}}}'")
-        if spec or conversion:
-            raise ValueError(f"placeholder '{{{field}}}' must not carry a format")
-    return text
-
-
-class InjectText(StrictModel):
-    sees: str = Field(min_length=1)
-    decision: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _check(self) -> "InjectText":
-        _check_placeholders(self.sees)
-        _check_placeholders(self.decision)
-        return self
-
-
-class EventTemplate(StrictModel):
-    title: str = Field(min_length=1)
-    situation: str = Field(min_length=1)
-    injects: dict[str, InjectText]
-
-    @model_validator(mode="after")
-    def _check(self) -> "EventTemplate":
-        _check_placeholders(self.title)
-        _check_placeholders(self.situation)
-        unknown = set(self.injects) - set(ACTORS)
-        if unknown:
-            raise ValueError(f"unknown actors: {sorted(unknown)}")
-        if not self.injects:
-            raise ValueError("an event needs at least one actor")
-        return self
-
-
-class SummaryTemplates(StrictModel):
-    failure: str = Field(min_length=1)
-    no_failure: str = Field(min_length=1)
-    resolved: str = Field(min_length=1)  # the run ends with a resolution tool or liquidation
-
-    @model_validator(mode="after")
-    def _check(self) -> "SummaryTemplates":
-        _check_placeholders(self.failure)
-        _check_placeholders(self.no_failure)
-        _check_placeholders(self.resolved)
-        return self
-
-
-class GlossaryEntry(StrictModel):
-    term: str = Field(min_length=1)
-    definition: str = Field(min_length=1)
-
-
-class InjectsConfig(StrictModel):
-    """Templates of config/injects.yaml for the exercise script (spec section 4.3)."""
-
-    actors: dict[str, str]
-    summary: SummaryTemplates
-    disclaimer: str = Field(min_length=1)
-    glossary: list[GlossaryEntry]
-    events: dict[str, EventTemplate]
-
-    @model_validator(mode="after")
-    def _check(self) -> "InjectsConfig":
-        if set(self.actors) != set(ACTORS):
-            raise ValueError(f"actors must be exactly {list(ACTORS)}")
-        if set(self.events) != set(INJECT_EVENTS):
-            missing = sorted(set(INJECT_EVENTS) - set(self.events))
-            unknown = sorted(set(self.events) - set(INJECT_EVENTS))
-            raise ValueError(f"events mismatch: missing {missing}, unknown {unknown}")
-        for actor in ACTORS:
-            for kind in ("opening", "failure"):
-                if actor not in self.events[kind].injects:
-                    raise ValueError(f"event '{kind}' needs an inject for '{actor}'")
-        return self
-
-
 # --------------------------------------------------------------------------- decisions
 
 # Stages a decision can wait for ("failure" is the payments default).
@@ -604,6 +486,45 @@ class DecisionPath(StrictModel):
     choices: list[PathChoice] = Field(default_factory=list)
 
 
+class FasterReporting(StrictModel):
+    """A decision option that shortens an actor's delay from the day it is in effect."""
+
+    decision: str
+    option: str
+    lag_days: int = Field(ge=0)
+
+
+class ActorInformation(StrictModel):
+    """What an actor knows, and how late (SPEC_V2 phase D).
+
+    The delay applies to figures. Stage changes, payments default, FOLTF and resolution are
+    notified the same day to every actor that is already informed.
+    """
+
+    # Who the information comes from, as it is named in the script.
+    source: str = Field(min_length=1)
+    # Figures the actor receives (its scope).
+    figures: list[str]
+    # Age of the figures in days: 0 = same day, 1 = the previous day's close.
+    lag_days: int = Field(ge=0)
+    # The actor receives nothing before this stage is reached (none = informed from the start).
+    informed_from: Optional[str] = None
+    faster: Optional[FasterReporting] = None
+
+    @model_validator(mode="after")
+    def _check(self) -> "ActorInformation":
+        unknown = set(self.figures) - set(DECISION_FIGURES)
+        if unknown:
+            raise ValueError(f"unknown figures: {sorted(unknown)}")
+        if len(set(self.figures)) != len(self.figures):
+            raise ValueError("a figure is listed twice")
+        if self.informed_from is not None and self.informed_from not in DECISION_STAGES:
+            raise ValueError(f"unknown stage '{self.informed_from}'")
+        if self.faster is not None and self.faster.lag_days >= self.lag_days:
+            raise ValueError("faster reporting must shorten the delay")
+        return self
+
+
 class DecisionsConfig(StrictModel):
     """Decision points of config/decisions.yaml (SPEC_V2 phase B)."""
 
@@ -611,8 +532,8 @@ class DecisionsConfig(StrictModel):
     lead_days: Parameter
     # Days until covered depositors are paid when the payout was not prepared.
     payout_days_unprepared: Parameter
-    # Figures each actor has at decision time, written into the decision log.
-    actor_figures: dict[str, list[str]]
+    # What each actor knows and how late: used for the decision log and the exercise script.
+    information: dict[str, ActorInformation]
     decisions: dict[str, Decision]
     default_path: str
     paths: dict[str, DecisionPath]
@@ -625,12 +546,14 @@ class DecisionsConfig(StrictModel):
                 raise ValueError(f"{name} must be a whole number >= 0")
         if self.lead_days.value < 1:
             raise ValueError("lead_days must be at least 1: a decision uses end-of-day figures")
-        if set(self.actor_figures) != set(ACTORS):
-            raise ValueError(f"actor_figures must list exactly {list(ACTORS)}")
-        for actor, figures in self.actor_figures.items():
-            unknown = set(figures) - set(DECISION_FIGURES)
-            if unknown:
-                raise ValueError(f"unknown figures for '{actor}': {sorted(unknown)}")
+        if set(self.information) != set(ACTORS):
+            raise ValueError(f"information must list exactly {list(ACTORS)}")
+        for actor, information in self.information.items():
+            faster = information.faster
+            if faster is not None:
+                target = self.decisions.get(faster.decision)
+                if target is None or faster.option not in target.options:
+                    raise ValueError(f"information of '{actor}': unknown decision or option")
         for key, decision in self.decisions.items():
             condition = decision.condition
             if condition.after is not None:
@@ -661,12 +584,109 @@ class DecisionsConfig(StrictModel):
         return self
 
 
+# --------------------------------------------------------------------------- script
+
+# Kinds of inject and the placeholders their text may use. No placeholder carries a figure:
+# every number in a participant's document comes from the actor's information set.
+SCRIPT_TEXTS = {
+    "opening": ("bank_name", "scenario_name"),
+    "news": ("headline",),
+    "recovery": ("bank_name", "sender"),
+    "early_intervention": ("bank_name", "sender"),
+    "likely_to_fail": ("bank_name", "sender"),
+    "failure": ("bank_name", "sender"),
+    "foltf": ("bank_name",),
+    "resolution": ("bank_name", "outcome"),
+    "decision_taken": ("decider", "decision_name", "option_name", "effect_day"),
+    "decision_due": ("decision_name",),
+    "end_open": ("bank_name", "horizon_days"),
+}
+SCRIPT_CLOCK = ("opening", "news", "stage", "decision_due", "decision_taken", "end")
+
+
+def _check_text(text: str, allowed: tuple[str, ...]) -> None:
+    for _, field, spec, conversion in Formatter().parse(text):
+        if field is None:
+            continue
+        if field not in allowed:
+            raise ValueError(f"unknown placeholder '{{{field}}}' (allowed: {list(allowed)})")
+        if spec or conversion:
+            raise ValueError(f"placeholder '{{{field}}}' must not carry a format")
+
+
+class Coordination(StrictModel):
+    """Who the deciding actor should consult before, and inform after, a decision (draft)."""
+
+    consult: list[str] = Field(default_factory=list)
+    inform: list[str] = Field(default_factory=list)
+
+
+class GlossaryEntry(StrictModel):
+    term: str = Field(min_length=1)
+    definition: str = Field(min_length=1)
+
+
+class ScriptConfig(StrictModel):
+    """Texts and rules of the exercise script, config/script.yaml (SPEC_V2 phase D)."""
+
+    draft_notice: str = Field(min_length=1)
+    disclaimer: str = Field(min_length=1)
+    actors: dict[str, str]  # display names
+    clock: dict[str, str]  # time of day of each kind of inject
+    # Days a decision stays open when the no-decision path has no payments default.
+    decision_window_days: Parameter
+    texts: dict[str, str]
+    # One question per decision, put to the deciding actor.
+    questions: dict[str, str]
+    coordination: dict[str, Coordination]
+    debrief: list[str]
+    glossary: list[GlossaryEntry]
+
+    @model_validator(mode="after")
+    def _check(self) -> "ScriptConfig":
+        if set(self.actors) != set(ACTORS):
+            raise ValueError(f"actors must be exactly {list(ACTORS)}")
+        if set(self.clock) != set(SCRIPT_CLOCK):
+            raise ValueError(f"clock must give a time for exactly {list(SCRIPT_CLOCK)}")
+        for kind, value in self.clock.items():
+            hours, _, minutes = value.partition(":")
+            if not (hours.isdigit() and minutes.isdigit() and len(minutes) == 2
+                    and int(hours) < 24 and int(minutes) < 60):
+                raise ValueError(f"clock '{kind}' must be a time such as 08:00")
+        if set(self.texts) != set(SCRIPT_TEXTS):
+            raise ValueError(f"texts must be exactly {list(SCRIPT_TEXTS)}")
+        for kind, text in self.texts.items():
+            _check_text(text, SCRIPT_TEXTS[kind])
+        window = self.decision_window_days.value
+        if window < 0 or window != int(window):
+            raise ValueError("decision_window_days must be a whole number >= 0")
+        for decision, coordination in self.coordination.items():
+            unknown = (set(coordination.consult) | set(coordination.inform)) - set(ACTORS)
+            if unknown:
+                raise ValueError(f"coordination of '{decision}': unknown actors {sorted(unknown)}")
+        if not self.debrief:
+            raise ValueError("debrief needs at least one question")
+        return self
+
+
 class Config(StrictModel):
     banks: dict[str, Bank]
     model: ModelParams
     scenarios: dict[str, Scenario]
-    injects: InjectsConfig
     decisions: DecisionsConfig
+    script: ScriptConfig
+
+    @model_validator(mode="after")
+    def _check_script(self) -> "Config":
+        decisions = set(self.decisions.decisions)
+        for name in ("questions", "coordination"):
+            if set(getattr(self.script, name)) != decisions:
+                raise ValueError(f"script.{name} must cover exactly the decisions {sorted(decisions)}")
+        for key, coordination in self.script.coordination.items():
+            actor = self.decisions.decisions[key].actor
+            if actor in coordination.consult or actor in coordination.inform:
+                raise ValueError(f"coordination of '{key}': the deciding actor lists itself")
+        return self
 
     @model_validator(mode="after")
     def _check_overrides(self) -> "Config":

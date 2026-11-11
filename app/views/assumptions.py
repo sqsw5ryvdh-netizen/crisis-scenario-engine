@@ -7,6 +7,7 @@ from app.assumptions import (
     assumption_counts,
     bank_table,
     decision_table,
+    information_table,
     model_table,
     scenario_table,
 )
@@ -36,7 +37,8 @@ def show(table):
 config = get_config()
 model, scenarios, banks = model_table(config), scenario_table(config), bank_table(config)
 decisions = decision_table(config)
-flagged, total = assumption_counts(model, scenarios, banks, decisions)
+information = information_table(config)
+flagged, total = assumption_counts(model, scenarios, banks, decisions, information)
 
 st.title("Assumptions")
 st.warning(
@@ -58,6 +60,13 @@ show(scenarios)
 st.subheader("Decisions")
 st.caption("Timing rule and the effect of each decision option.")
 show(decisions)
+
+st.subheader("Information sets")
+st.caption(
+    "What each actor sees in the exercise script and in the decision log, and how old its "
+    "figures are. They do not change the simulation."
+)
+st.dataframe(information, hide_index=True, width="stretch")
 
 st.subheader("Bank archetypes")
 st.caption("Fictitious opening balance sheets.")

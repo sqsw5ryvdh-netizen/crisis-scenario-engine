@@ -54,6 +54,7 @@ from engine.decisions import (
     DecisionRecord,
     Scorecard,
     actor_label,
+    lag_days,
 )
 from engine.schema import Bank, DecisionCondition, DecisionsConfig, ModelParams, Scenario
 
@@ -187,6 +188,8 @@ class SimulationResult:
     end_day: int = 0  # last simulated day
     foltf_day: Optional[int] = None  # day the FOLTF declaration is in effect
     decision_log: tuple[DecisionRecord, ...] = ()
+    # Actors whose reporting delay was shortened by a decision, and from which day.
+    faster_reporting_from: tuple[tuple[str, int], ...] = ()
     scorecard: Optional[Scorecard] = None
     # First day from which the flag conditions no longer hold (None: never raised, or standing).
     flag_cleared_day: Optional[int] = None
@@ -839,6 +842,7 @@ def simulate(
     effects: dict[int, list[tuple[str, str]]] = {}  # effect day -> (decision, option)
     sales: dict[int, list[tuple[float, float]]] = {}  # settlement day -> (amount, discount)
     log: list[DecisionRecord] = []
+    faster_from: dict[str, int] = {}  # actor -> day its shorter reporting delay starts
 
     def cb_usable(day: int) -> bool:
         return central_bank_from is not None and day >= central_bank_from
@@ -875,8 +879,15 @@ def simulate(
                 return False
         return True
 
-    def take_decisions(day: int, row: dict) -> None:
-        """After the close of `day`: take every scheduled decision whose condition holds."""
+    def informed(actor: str) -> bool:
+        stage_needed = decisions.information[actor].informed_from
+        return stage_needed is None or stage >= _STAGE_OF[stage_needed]
+
+    def take_decisions(day: int) -> None:
+        """After the close of `day`: take every scheduled decision whose condition holds.
+
+        An actor decides on its own figures, at the age its reporting delay implies.
+        """
         progress = True
         while progress:
             progress = False
@@ -884,14 +895,18 @@ def simulate(
                 definition = decisions.decisions[choice.decision]
                 if choice.day > day or not condition_holds(definition.condition, day):
                     continue
+                if not informed(definition.actor):
+                    continue  # an actor cannot decide before it is informed
                 pending.remove(choice)
                 decided[choice.decision] = choice.option
                 option = definition.options[choice.option]
                 effect_day = day + lead
                 effects.setdefault(effect_day, []).append((choice.decision, choice.option))
-                figures = tuple(
-                    (name, float(row[name])) for name in decisions.actor_figures[definition.actor]
+                information = decisions.information[definition.actor]
+                as_of = max(
+                    0, day - lag_days(information, day, faster_from.get(definition.actor))
                 )
+                figures = tuple((name, float(rows[as_of][name])) for name in information.figures)
                 log.append(
                     DecisionRecord(
                         decision=choice.decision,
@@ -903,6 +918,7 @@ def simulate(
                         decided_day=day,
                         effect_day=effect_day,
                         figures=figures,
+                        figures_as_of=as_of,
                     )
                 )
                 events.append(
@@ -921,6 +937,10 @@ def simulate(
         nonlocal payout_days_prepared, payout_decided, pending
         option = decisions.decisions[decision_key].options[option_key]
         values = {name: param.value for name, param in option.params.items()}
+        for actor, information in decisions.information.items():
+            faster = information.faster
+            if faster is not None and (faster.decision, faster.option) == (decision_key, option_key):
+                faster_from.setdefault(actor, day)
         effect = option.effect
         if effect == "panic_shock":
             return values["shock"]
@@ -967,7 +987,7 @@ def simulate(
     funding_need: Optional[FundingNeed] = None
     day = 0
     if failure_day is None:
-        take_decisions(0, row)
+        take_decisions(0)
 
     while failure_day is None and tool is None and day < horizon:
         day += 1
@@ -1046,7 +1066,7 @@ def simulate(
             events.append(Event(day, "resolution", f"Resolution tool applied: {tool.replace('_', ' ')}."))
         else:
             # 5. Decisions taken after the close, on today's figures.
-            take_decisions(day, row)
+            take_decisions(day)
 
     if failure_day is not None:
         outcome = OUTCOME_DEFAULT
@@ -1124,6 +1144,7 @@ def simulate(
         end_day=day,
         foltf_day=foltf_day,
         decision_log=tuple(log),
+        faster_reporting_from=tuple(sorted(faster_from.items())),
         scorecard=scorecard,
         flag_cleared_day=flag_cleared_day,
     )

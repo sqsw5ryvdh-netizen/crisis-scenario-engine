@@ -86,7 +86,9 @@ def _broken_config(tmp_path, change):
         lambda d: d["paths"]["ela_granted"]["choices"][0].update(option="grant_everything"),
         lambda d: d["decisions"]["moratorium"]["condition"].update(after="nothing"),
         lambda d: d["lead_days"].update(value=0),
-        lambda d: d["actor_figures"]["central_bank"].append("share_price"),
+        lambda d: d["information"]["central_bank"]["figures"].append("share_price"),
+        lambda d: d["information"]["competent_authority"]["faster"].update(lag_days=1),
+        lambda d: d["information"].pop("central_bank"),
     ],
 )
 def test_invalid_decisions_config_is_rejected(tmp_path, change):
@@ -401,14 +403,17 @@ def test_scorecard_matches_the_last_day_of_the_run(bank, scenario, path):
 
 
 @pytest.mark.parametrize("path", list(DECISIONS.paths))
-def test_decision_log_holds_the_actor_figures_of_the_decision_day(path):
+def test_decision_log_holds_the_figures_the_actor_had_when_it_decided(path):
     result = run_path("universal", "geopolitical", path)
     assert len(result.decision_log) <= len(DECISIONS.paths[path].choices)
     for record in result.decision_log:
         definition = DECISIONS.decisions[record.decision]
         assert record.actor == definition.actor
-        row = day_row(result, record.decided_day)
-        assert [name for name, _ in record.figures] == DECISIONS.actor_figures[record.actor]
+        information = DECISIONS.information[record.actor]
+        # Figures are the actor's own, as old as its reporting delay.
+        assert record.figures_as_of == max(0, record.decided_day - information.lag_days)
+        row = day_row(result, record.figures_as_of)
+        assert [name for name, _ in record.figures] == information.figures
         for name, value in record.figures:
             assert value == pytest.approx(row[name]), (record.decision, name)
     rows = decision_log_rows(result.decision_log, "EUR bn")

@@ -1,39 +1,35 @@
 # STATUS
 
-Last completed: **SPEC_V2 phase B2 - fixes after the phase B review** (2026-11-11). Done before: M0-M6, phases A and B. Next by agreement: phase D, then C and E.
+Last completed: **SPEC_V2 phase D - Exercise script, rewritten** (2026-11-11). Done before: M0-M6, phases A, B and B2. Next by agreement: phase C, then E.
 
-## What was built in phase B2
-- **Stable core.** Each deposit category has a flight-prone share (`config/model.yaml`): insured retail 20%, uninsured retail 70%, corporate 85%, financial 100%. Only that part can leave. Run-off rates are divided by the share, so day 1 of a run is unchanged and outflows slow as the flight-prone part is used up.
-- **Outcome labels.** A bank still open at day 30 is *stabilised* (flag conditions gone, positive buffer, outflows below 0.2% of opening deposits per day, on each of the last 3 days), *kept open on emergency funding* (not stabilised, ELA outstanding) or *still under stress* (not stabilised, no ELA). Otherwise: payments default, resolution, liquidation. "Survives" is gone. Results also give the day the flag conditions cleared.
-- **Milder cyber outage.** Severity 2.0 -> 0.8, news shocks halved, pressure easing from day 5. The day the queue is released costs the universal bank 12% of deposits (was 41%).
-- `tests/`: 851 tests.
+## What was built in phase D
+- **Information sets** (`config/decisions.yaml`, `information`): for each actor, the figures it receives, how old they are, from which stage it is informed, and who tells it. Bank management and central bank: same day. Competent authority: one day old, same day once "require daily reporting" is in effect. Resolution authority: nothing before early intervention, then one day old. Deposit guarantee scheme: only once the bank is likely to fail.
+- **Injects per actor** (`engine/script.py`): day, weekday, time, sender, text, the actor's own figures with their date, and for a decision the question, the options with branch codes, the deadline, who to consult and who to inform.
+- **Two branches in one pack**: each actor's document has a shared part, then one section per branch. Participant documents show branch codes only, not outcomes or path names.
+- **Facilitator pack**: scorecards side by side, who sees what and how late, full-information timeline per branch, decisions taken, every decision point with where each option leads, coordination steps, debrief questions.
+- **Export** (`engine/export.py`): one zip with five participant documents and the facilitator pack (.docx) and five data files (.csv). App: the Exercise script tab previews one actor and has one download. CLI: `--export-dir`, `--compare-path`.
+- The decision log now holds the figures the actor had (delayed); an actor cannot decide before it is informed.
+- Removed: the old single script, `config/injects.yaml`, `engine/injects.py`, their tests. New: `config/script.yaml`. `tests/`: 898 tests.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | CLI: `.venv/bin/python -m engine.run --bank universal --scenario geopolitical --path support_package`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q`
+- Pack: `.venv/bin/python -m engine.run --bank universal --scenario fast_run --path early_foltf --export-dir exports`
 
-## Acceptance output (phase B2)
-Without decisions. R/E/F = day of recovery, early intervention, likely-to-fail flag; then outcome and deposits lost.
-
-| Bank | Fast run | Slow burn | Cyber outage | Geopolitical |
-|---|---|---|---|---|
-| Universal | 1/1/1, default day 5, 57% | 7/-/-, under stress, 24% | 3/4/4, under stress, 34% | 2/3/3, under stress, 60% |
-| Retail | 1/1/1, default day 5, 41% | 12/-/-, under stress, 13% | 4/-/-, stabilised, 17% | 2/5/6, under stress, 42% |
-| Digital | 1/1/1, default day 2, 29% | 9/-/-, under stress, 18% | 3/4/4, under stress, 23% | 2/3/3, default day 7, 34% |
-| Specialised | 1/1/1, default day 4, 62% | 7/-/-, under stress, 29% | 2/15/-, under stress, 41% | 2/3/3, default day 9, 62% |
-
-Universal bank, fast run, by path: ELA refused -> default day 5, 57% lost. ELA granted -> stabilised, 63% lost, 76.4 ELA outstanding. Early FOLTF + moratorium + bail-in -> resolution day 4, 15% lost. Same with liquidation -> DGS payout 214.1 in 5 days.
-
-Universal bank, geopolitical shock: without decisions, still under stress at day 30 (no buffer, CET1 0.5%, flag standing). With the support package, stabilised (buffer 43.5, CET1 never below 11.7%, flag conditions gone). Both lose 60% of deposits.
-- `pytest -q` -> `851 passed`.
+## Acceptance output (phase D)
+- Full export for the universal bank in the fast run, branch A "authorities act late" (payments default day 5) against branch B "early FOLTF, bail-in" (resolution day 4): 11 files in `exports/exercise_pack_universal_fast_run/` (not in git).
+- Resolution authority's document: no inject about the recovery breach; on day 1 at 18:00 it is told early intervention conditions are met and holds figures as of day 0 (deposits 620.60, nothing lost) while the bank has already lost 15.2%. It never sees the liquidity buffer or the LCR proxy.
+- The test that enforces this checks every figure of every actor's injects against its set and delay, and every number printed in the Word document against those figures, for the acceptance pack and for 2 banks in 4 scenarios on a second pair of paths.
+- `pytest -q` -> `898 passed`. Script tab checked in the browser.
 
 ## Deviations and choices (approved 2026-11-11)
-- The acceptance is shown on the geopolitical shock, not the cyber outage: a cyber outage clearly milder than the fast run is absorbed by the universal bank on its own.
-- A fifth label, "still under stress", was added for a bank that is open at day 30 without ELA and not stabilised.
-- Flight-prone shares were set so that every archetype still defaults in the fast run without decisions.
+- Weekdays and times are labels only (day 1 is a Monday); no weekend rules or intraday figures before phase C.
+- Delays apply to figures. Stage changes, payments default, FOLTF and resolution are notified the same day, so the one-day decision rule of phase B is unchanged.
+- Deadline of a decision: the last close before the payments default of the path without decisions; without such a default, 2 days after it opens.
+- For an option not followed on a branch, "where it leads" is a run with that option taken at the first possible close and nothing decided afterwards.
 
 ## Open questions
-- "Stabilised" depends on the 30-day horizon: a slow run still leaking on day 30 is "under stress" (all slow-burn runs; the universal bank in the cyber outage, with 110 of buffer left).
-- Without decisions the universal bank reaches day 30 of the geopolitical shock with 0.5% CET1 and no default: it funds itself by selling loans at a loss until the outflows stop.
-- ELA alone now stabilises the universal bank in the fast run and in the geopolitical shock.
-- The exported script does not mention decisions yet (phase D). Every parameter added in A, B and B2 is ASSUMPTION.
-- Screenshots in docs/screenshots/ predate phases A, B and B2. A 500-run pass takes about 1.1 s on a 30-day run.
+- All wording, coordination steps and debrief questions are my draft, without legal references; a practitioner should review them.
+- Information sets are not `value/unit/source` parameters: they are listed, flagged ASSUMPTION, on the Assumptions page.
+- In the fast run three stage notifications arrive together on day 1, each with the same figures.
+- A deadline is relative to the no-decision path, so it can be later than useful on a branch where another decision already changed the course.
+- Screenshots in docs/screenshots/ predate phases A to D. The contagion tab ignores decisions (phase F).
