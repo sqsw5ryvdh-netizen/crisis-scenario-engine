@@ -4,6 +4,7 @@ Prototype for a university project (ESCP MiM) to be demoed to the European Banki
 It generates the quantitative script of a fast-burn bank crisis (deposit run -> liquidity stress -> triggers -> resolution funding need), to feed authority crisis simulation exercises.
 
 Full spec: @docs/SPEC.md  (read it before any work)
+Second spec, phases A-F (current work): @docs/SPEC_V2.md
 Current status: @docs/STATUS.md
 
 ## Stack
