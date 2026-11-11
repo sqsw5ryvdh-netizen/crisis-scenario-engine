@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from app import demo
 from app.charts import TRIGGERS, build_timeline
+from engine.montecarlo import bands, run_monte_carlo
 from engine.config import load_config
 from engine.model import simulate, uninsured_share, with_uninsured_share
 
@@ -85,38 +87,63 @@ def test_timeline_without_triggers_has_no_markers():
 # ------------------------------------------------- Streamlit page (headless)
 
 
-def test_app_runs_and_shows_selectors_sliders_chart_and_table():
-    at = AppTest.from_file(APP_PATH).run(timeout=30)
+def open_app(demo_on=False, tab=None):
+    """Start the app; by default with the guided demo off, so results show at once."""
+    at = AppTest.from_file(APP_PATH)
+    at.session_state["demo_on"] = demo_on
+    if tab is not None:
+        at.session_state["view"] = tab
+    return at.run(timeout=30)
+
+
+def test_app_opens_on_the_demo_selection_with_selectors_sliders_and_timeline():
+    at = open_app()
     assert not at.exception
-    assert sorted(box.label for box in at.selectbox) == [
-        "Bank archetype", "Second bank archetype", "Trigger scenario",
-    ]
-    assert [box.label for box in at.checkbox] == ["Same country as the first bank"]
-    assert len(at.slider) == 6
+    assert at.selectbox(key="bank").value == demo.DEMO_BANK
+    assert at.selectbox(key="scenario").value == demo.DEMO_SCENARIO
+    assert [box.label for box in at.selectbox] == ["Bank archetype", "Trigger scenario"]
+    assert len(at.sidebar.slider) == 6
     assert [n.label for n in at.number_input] == ["Random seed"]
     assert [metric.label for metric in at.metric][0] == "Failure day"
-    assert len(at.dataframe) == 1
-    assert any(h.value == "Exercise script" for h in at.subheader)
-    assert len(at.expander) >= 2
+    assert [tab.label for tab in at.tabs] == demo.TABS
+    assert at.slider(key="day").value == 10  # whole run shown: the bank fails on day 10
+
+
+@pytest.mark.parametrize(
+    "tab, check",
+    [
+        (demo.TAB_FUNDING, lambda at: len(at.dataframe) == 1),
+        (demo.TAB_UNCERTAINTY, lambda at: any(
+            h.value == "Failure-day distribution" for h in at.subheader)),
+        (demo.TAB_SCRIPT, lambda at: len(at.expander) >= 2 and len(at.get("download_button")) == 3),
+        (demo.TAB_CONTAGION, lambda at: at.checkbox(key="same_country").value is True),
+    ],
+)
+def test_each_tab_shows_its_content(tab, check):
+    at = open_app(tab=tab)
+    assert not at.exception
+    assert check(at)
+    assert not [s for s in at.slider if s.key == "day"]  # tabs are lazy: no timeline here
 
 
 def test_moving_a_slider_reruns_in_under_one_second_and_shifts_failure_day():
-    at = AppTest.from_file(APP_PATH).run(timeout=30)
-    at.selectbox(key="bank").set_value("digital")
-    at.selectbox(key="scenario").set_value("fast_run")
-    at.run(timeout=30)
+    at = open_app()
     before = at.metric[0].value
+    assert not at.metric[0].delta
     slider = next(s for s in at.slider if s.label.startswith("Uninsured deposits"))
     start = time.perf_counter()
     slider.set_value(80).run(timeout=30)
     elapsed = time.perf_counter() - start
     assert not at.exception
     assert elapsed < 1.0, f"re-run took {elapsed:.2f}s"
-    assert at.metric[0].value != before
+    assert (before, at.metric[0].value) == ("Day 10", "Day 4")
+    assert at.metric[0].delta == "6 days earlier than with the starting values (day 10)"
+    assert at.slider(key="day").value == 4  # the day view follows the new run
 
 
-def test_every_bank_and_scenario_renders():
-    at = AppTest.from_file(APP_PATH).run(timeout=30)
+@pytest.mark.parametrize("tab", demo.TABS)
+def test_every_bank_and_scenario_renders(tab):
+    at = open_app(tab=tab)
     for bank_key in CONFIG.banks:
         for scenario_key in CONFIG.scenarios:
             at.selectbox(key="bank").set_value(bank_key)
@@ -126,10 +153,7 @@ def test_every_bank_and_scenario_renders():
 
 
 def test_contagion_section_reacts_to_the_country_checkbox():
-    at = AppTest.from_file(APP_PATH).run(timeout=30)
-    at.selectbox(key="bank").set_value("digital")
-    at.selectbox(key="scenario").set_value("fast_run")
-    at.run(timeout=30)
+    at = open_app(tab=demo.TAB_CONTAGION)
     similarity = next(m for m in at.metric if m.label == "Similarity")
     assert similarity.value == "100%"
     hit = next(m for m in at.metric if m.label.endswith("with contagion")).value
@@ -140,3 +164,140 @@ def test_contagion_section_reacts_to_the_country_checkbox():
     at.selectbox(key="second_bank:digital").set_value("retail").run(timeout=30)
     assert next(m for m in at.metric if m.label == "Similarity").value == "0%"
     assert len(at.info) == 1
+
+
+def test_assumptions_page_opens_from_the_navigation():
+    at = open_app()
+    at.switch_page("views/assumptions.py").run(timeout=30)
+    assert not at.exception
+    assert at.title[0].value == "Assumptions"
+
+
+# ------------------------------------------------- day-by-day view
+
+
+def _digital_fast_run():
+    bank, scenario = CONFIG.banks["digital"], CONFIG.scenarios["fast_run"]
+    return bank, scenario, simulate(bank, CONFIG.model, scenario)
+
+
+@pytest.mark.parametrize("day", [0, 1, 3, 4, 9])
+def test_day_view_never_shows_later_days(day):
+    bank, scenario, result = _digital_fast_run()
+    band_data = bands(run_monte_carlo(bank, CONFIG.model, scenario, 50, 1))
+    fig = build_timeline(result, HORIZON, "EUR bn", band_data, until_day=day)
+    assert len(fig.data) == (3 if day == 0 else 4)  # three lines, plus news from day 1; no band
+    assert all(max(trace.x) <= day for trace in fig.data)
+    labels = [a.text for a in fig.layout.annotations if "day" in a.text]
+    shown = [f"{TRIGGERS[e.kind][0]}: day {e.day}" for e in result.events
+             if e.kind in TRIGGERS and e.day <= day]
+    assert labels == shown
+
+
+def test_day_view_keeps_the_axes_of_the_whole_run_and_ends_with_the_band():
+    bank, scenario, result = _digital_fast_run()
+    band_data = bands(run_monte_carlo(bank, CONFIG.model, scenario, 50, 1))
+    whole = build_timeline(result, HORIZON, "EUR bn", band_data)
+    for day in (0, 5):
+        part = build_timeline(result, HORIZON, "EUR bn", band_data, until_day=day)
+        for axis in ("yaxis", "yaxis2", "yaxis3"):
+            assert part.layout[axis].range == whole.layout[axis].range
+    last = build_timeline(result, HORIZON, "EUR bn", band_data, until_day=result.failure_day)
+    assert len(last.data) == len(whole.data) == 10  # 3 lines, 6 band edges, news
+
+
+def test_play_reveals_the_run_from_day_zero_to_the_last_day(monkeypatch):
+    monkeypatch.setattr(demo, "PLAYBACK_SECONDS", 0)
+    at = open_app()
+    at.slider(key="day").set_value(3).run(timeout=30)
+    assert any(m.value.startswith("**Day 3:") for m in at.markdown)
+    assert not any("Day 4," in m.value for m in at.markdown)  # early intervention not yet shown
+    at.button(key="play").click().run(timeout=30)
+    assert not at.exception
+    assert at.slider(key="day").value == 10
+    assert at.session_state["play_next"] is None
+
+
+# ------------------------------------------------- guided demo
+
+
+def test_describe_shift():
+    assert demo.describe_shift(10, 10) is None
+    assert demo.describe_shift(None, None) is None
+    assert demo.describe_shift(5, 10) == "5 days earlier than with the starting values (day 10)"
+    assert demo.describe_shift(11, 10) == "1 day later than with the starting values (day 10)"
+    assert demo.describe_shift(None, 10) == "Failed on day 10 with the starting values"
+    assert demo.describe_shift(7, None) == "No failure with the starting values"
+
+
+def test_demo_steps_follow_the_story_and_name_existing_tabs():
+    assert len(demo.DEMO_STEPS) == 6
+    assert [step.title.split()[0] for step in demo.DEMO_STEPS] == [
+        "Pick", "Pick", "Press", "Watch", "Move", "Export",
+    ]
+    assert all(step.tab is None or step.tab in demo.TABS for step in demo.DEMO_STEPS)
+    assert demo.DEMO_STEPS[-1].tab == demo.TAB_SCRIPT
+    assert ".st-key-ctl_bank" in demo.highlight_css("ctl_bank")
+
+
+def _panel_title(at):
+    return next(m.value for m in at.markdown if m.value.startswith("**Guided demo"))
+
+
+def test_demo_is_on_at_start_and_hides_results_until_run():
+    at = AppTest.from_file(APP_PATH).run(timeout=30)
+    assert not at.exception
+    assert "step 1 of 6: Pick a bank archetype" in _panel_title(at)
+    assert len(at.metric) == 0 and len(at.info) == 1
+    assert at.button(key="demo_back").disabled
+
+
+def test_full_demo_walk_forward_and_back(monkeypatch):
+    monkeypatch.setattr(demo, "PLAYBACK_SECONDS", 0)
+    at = AppTest.from_file(APP_PATH).run(timeout=30)
+    at.button(key="demo_next").click().run(timeout=30)
+    assert "step 2 of 6" in _panel_title(at)
+    at.button(key="demo_next").click().run(timeout=30)
+    assert "step 3 of 6: Press run" in _panel_title(at)
+    assert len(at.metric) == 0
+    assert not [b for b in at.button if b.key == "demo_next"]
+
+    at.button(key="demo_run").click().run(timeout=30)
+    assert not at.exception
+    assert "step 4 of 6" in _panel_title(at)
+    assert at.metric[0].value == "Day 10"
+    assert at.slider(key="day").value == 10  # played from day 0 to the end
+    assert at.session_state["view"] == demo.TAB_TIMELINE
+
+    at.button(key="demo_next").click().run(timeout=30)
+    assert "step 5 of 6: Move a slider" in _panel_title(at)
+    next(s for s in at.slider if s.label.startswith("Uninsured")).set_value(60).run(timeout=30)
+    assert at.metric[0].value == "Day 6"
+    assert at.metric[0].delta.startswith("4 days earlier")
+
+    at.button(key="demo_next").click().run(timeout=30)
+    assert "step 6 of 6: Export" in _panel_title(at)
+    assert at.session_state["view"] == demo.TAB_SCRIPT
+    assert len(at.get("download_button")) == 3
+    assert at.button(key="demo_next").disabled
+
+    at.button(key="demo_back").click().run(timeout=30)
+    assert "step 5 of 6" in _panel_title(at)
+    assert at.session_state["view"] == demo.TAB_TIMELINE
+    assert at.metric[0].value == "Day 6"  # slider values survive moving between steps
+
+    at.button(key="demo_exit").click().run(timeout=30)
+    assert not at.exception
+    assert not [m for m in at.markdown if m.value.startswith("**Guided demo")]
+    assert at.metric[0].value == "Day 6"
+
+
+# ------------------------------------------------- one-command start
+
+
+def test_readme_start_command_exists_and_launches_the_app():
+    root = Path(APP_PATH).parent.parent
+    script = root / "start.sh"
+    assert "./start.sh" in (root / "README.md").read_text()
+    assert script.stat().st_mode & 0o111  # executable
+    assert "streamlit run app/main.py" in script.read_text()

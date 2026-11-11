@@ -1,21 +1,15 @@
 """Assumptions page: every parameter with its value and source (spec section 4.5)."""
 
-import sys
-from pathlib import Path
+import streamlit as st
 
-# Streamlit only puts app/ on the path; the engine lives in the repo root.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-import streamlit as st  # noqa: E402
-
-from app.assumptions import (  # noqa: E402
+from app.assumptions import (
     FLAG,
     assumption_counts,
     bank_table,
     model_table,
     scenario_table,
 )
-from engine.config import load_config  # noqa: E402
+from engine.config import load_config
 
 
 @st.cache_resource
@@ -38,7 +32,6 @@ def show(table):
     st.dataframe(styled, hide_index=True, width="stretch")
 
 
-st.set_page_config(page_title="Assumptions", layout="wide")
 config = get_config()
 model, scenarios, banks = model_table(config), scenario_table(config), bank_table(config)
 flagged, total = assumption_counts(model, scenarios, banks)

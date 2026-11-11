@@ -205,7 +205,7 @@ def test_assumptions_are_flagged_and_counted():
 
 
 def test_assumptions_page_renders():
-    at = AppTest.from_file(str(ROOT / "app" / "pages" / "1_Assumptions.py")).run(timeout=30)
+    at = AppTest.from_file(str(ROOT / "app" / "views" / "assumptions.py")).run(timeout=30)
     assert not at.exception
     assert len(at.dataframe) == 3
     assert "ASSUMPTION" in at.warning[0].value

@@ -1,40 +1,40 @@
 # STATUS
 
-Last completed milestone: **M5 - Calibration and contagion** (2026-11-11), in three commits (M5c, M5a, M5b). Next: M6 (not started).
+Last completed milestone: **M6 - Demo polish** (2026-11-11). All milestones of docs/SPEC.md are done.
 
 ## What was built
-- M0-M4 and M5c: validated config, deterministic engine, CLI, app (selectors, sliders, timeline with bands, waterfall table), exercise script export, Monte Carlo, assumptions page, one-way contagion.
-- `scripts/calibrate_te2025.py`: reads the EBA 2025 Transparency Exercise file, builds two peer groups and prints the median proportions and the resulting `config/banks.yaml` blocks.
-- `config/banks.yaml`: universal and retail archetypes now use peer medians for cash, retail deposit total, corporate and financial deposits, wholesale funding total, CET1 and RWA. Each line has its own source (`sources:`).
-- `engine/schema.py`: optional per-line sources on a bank; the assumptions page shows calibrated lines as "Sourced" and flags any line that rests even partly on an assumption.
-- `docs/CALIBRATION.md`: files with checksums, item and column of every number, peer banks, results, gaps; and the comparison of run speed with three real cases, each figure with its primary source and page.
-- `tests/`: 372 tests.
+- M0-M5: validated config, deterministic engine, CLI, exercise script export, Monte Carlo, assumptions page, one-way contagion, calibration of two archetypes (docs/CALIBRATION.md).
+- `app/main.py`: now a router with two pages, "Simulation" and "Assumptions" (`app/views/`).
+- `app/views/simulation.py`: results in five tabs (Timeline, Funding, Uncertainty, Exercise script, Contagion); only the open tab is computed. Opens on the digital bank and the fast run.
+- Day-by-day view: a day slider and a Play button reveal the timeline up to a day, with that day's figures and the events so far. The uncertainty band appears on the last day.
+- Reference run: the failure day shows the change against the bank and scenario as first shown, e.g. "4 days earlier than with the starting values (day 10)".
+- `app/demo.py`: the guided demo, six steps following spec section 2, with Back, Next, Run and Exit. Each step opens the right tab and outlines the control to use. On by default.
+- `start.sh` (one-command start) and `README.md`.
+- `tests/`: 393 tests.
 
 ## How to run
-- Setup: `python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt`
+- App: `./start.sh` (creates `.venv` and installs dependencies on first use; macOS and Linux)
 - Tests: `.venv/bin/pytest -q`
-- App: `.venv/bin/streamlit run app/main.py`
+- CLI: `.venv/bin/python -m engine.run --bank digital --scenario fast_run`
 - Calibration (needs the raw file, see docs/CALIBRATION.md): `.venv/bin/python scripts/calibrate_te2025.py`
 
-## Acceptance output (M5)
-- `pytest -q` -> `372 passed`.
-- Peer groups at June 2025: universal 28 banks in 10 countries, retail 40 banks in 19 countries, out of 107 reporting banks.
-- Opening LCR proxy: universal 118%, retail 139%, digital 215%, specialised 152%.
-- Central-run failure day before -> after: universal fast run 7 -> 4, slow burn 26 -> 16; retail fast run 5 -> 4, slow burn 25 -> 21.
-- Real cases: fast run (specialised) loses 16% of deposits on day 1 and 44% by day 2, against about 17% and 44% for First Republic and 25% on day 1 for Silicon Valley Bank. Slow burn loses 51-67% within 30 days, against about 25% in a month for Credit Suisse.
-- Contagion is visible in the app (M5c).
+## Acceptance output (M6)
+- `pytest -q` -> `393 passed`.
+- Full demo story run in the browser without touching code: digital bank, fast run, Run, playback from day 0 to failure on day 10 (recovery day 1, early intervention day 4), uninsured deposits 38% -> 60% moves failure to day 6, script tab with the three downloads.
+- The Word file served by the download button opens: 142 paragraphs, 9 tables, same figures as the screen.
+- `./start.sh` serves the app (health check `ok`); in a clean copy it creates the environment and installs the dependencies.
 
 ## Deviations from spec and choices (approved 2026-11-11)
-- Only the Transparency Exercise was used; the Pillar 3 Data Hub was not explored.
-- Real cases are compared, not used to tune: every run-off parameter is still ASSUMPTION.
-- Digital and specialised archetypes stay ASSUMPTION: the data has no field that identifies them.
-- `lcr_outflow_rate_financial` lowered from 1.00 to 0.60 (ASSUMPTION), because the calibrated universal bank otherwise opened below the recovery threshold.
-- Government deposits count as corporate; deposits from credit institutions count as financial; equity above CET1 sits in other liabilities.
+- "Press run" exists only in the guided demo; outside it the app recalculates on every change.
+- Playback speed (0.5 s per day) and the opening selection are display settings in `app/demo.py`, not model parameters.
+- Minimum Streamlit version raised to 1.67 (tabs that can be opened from code). No new dependency.
+- Windows has no one-command start.
+- Earlier choices (60% LCR outflow rate for financial deposits, real cases compared but not used to tune, Transparency Exercise only) are unchanged.
 
 ## Open questions
-- The slow-burn scenario is much faster than the Credit Suisse case. Nothing was tuned; slowing it would be a model change to decide.
-- Northern Rock and Banco Popular were examined and left out: no verifiable outflow figure found.
-- HQLA, the insured share of retail deposits, the wholesale maturity ladder and capital requirements have no source yet.
-- The retail peer rule is purely numerical and also picks up some online or specialised banks.
-- The raw EBA files are not in git; the test that compares config with the script is skipped without them.
+- The slow-burn scenario is much faster than the Credit Suisse case; left as is by decision.
+- The digital bank is the most resilient archetype (fails on day 10 in the fast run); its numbers are placeholders.
+- All behavioural parameters, HQLA, the insured share, the maturity ladder and capital requirements are still ASSUMPTION.
+- The wording of the exercise script is a draft and has not been reviewed by a practitioner.
+- The preview pane used for the run-through does not save downloads to disk; the file was checked by fetching it from the app. Saving from a normal browser was not tested.
 - "Higher severity never fails later" is verified on a grid, not proven.

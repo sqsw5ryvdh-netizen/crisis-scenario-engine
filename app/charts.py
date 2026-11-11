@@ -29,12 +29,21 @@ def build_timeline(
     horizon: int,
     unit: str,
     bands: Optional[dict[str, pd.DataFrame]] = None,
+    until_day: Optional[int] = None,
 ) -> go.Figure:
     """Liquidity buffer, deposits and CET1 ratio by day, with trigger and news markers.
 
     `bands` (optional, from engine.montecarlo.bands) adds a shaded uncertainty band per panel.
+    `until_day` (optional) reveals the run only up to that day. The axes keep the scale of
+    the whole run, and the band is drawn only once the last day is shown.
     """
-    table = result.table
+    full_table = result.table
+    last_day = int(full_table["day"].max())
+    if until_day is None or until_day >= last_day:
+        until_day = last_day
+    table = full_table[full_table["day"] <= until_day]
+    events = [event for event in result.events if event.day <= until_day]
+    bands_shown = bands if until_day == last_day else None
     panels = [
         (f"Liquidity buffer ({unit})", "liquidity_buffer", 1.0, "%{y:.2f}"),
         (f"Deposits ({unit})", "deposits_total", 1.0, "%{y:.2f}"),
@@ -48,8 +57,11 @@ def build_timeline(
         subplot_titles=[title for title, _, _, _ in panels],
     )
     for row, (title, column, factor, value_format) in enumerate(panels, start=1):
+        top = float(full_table[column].max())
         if bands is not None:
-            band = bands[column]
+            top = max(top, float(bands[column]["high"].max()))
+        if bands_shown is not None:
+            band = bands_shown[column]
             # Upper edge first, then the lower edge filled up to it.
             for edge, fill in (("high", None), ("low", "tonexty")):
                 fig.add_trace(
@@ -78,9 +90,10 @@ def build_timeline(
             row=row,
             col=1,
         )
-        fig.update_yaxes(rangemode="tozero", row=row, col=1)
+        # Fixed scale, so the axes do not jump while the days are revealed.
+        fig.update_yaxes(range=[0, top * factor * 1.05 or 1], row=row, col=1)
 
-    news = [event for event in result.events if event.kind == "news"]
+    news = [event for event in events if event.kind == "news"]
     if news:
         buffer_by_day = table.set_index("day")["liquidity_buffer"]
         fig.add_trace(
@@ -98,7 +111,7 @@ def build_timeline(
             col=1,
         )
 
-    for event in result.events:
+    for event in events:
         if event.kind not in TRIGGERS:
             continue
         label, color = TRIGGERS[event.kind]
@@ -118,9 +131,9 @@ def build_timeline(
     fig.update_xaxes(range=[0, horizon], dtick=5)
     fig.update_xaxes(title_text="Day", row=len(panels), col=1)
     fig.update_layout(
-        height=680,
+        height=600,
         showlegend=False,
-        margin=dict(l=10, r=10, t=120, b=10),
+        margin=dict(l=10, r=10, t=90, b=10),
         hovermode="x unified",
     )
     return fig
