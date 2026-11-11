@@ -17,6 +17,7 @@ from app.charts import (
 from engine.config import load_config
 from engine.contagion import similarity_factor, simulate_contagion
 from engine.decisions import (
+    OPEN_OUTCOMES,
     OUTCOME_LABELS,
     Choice,
     choices_of,
@@ -382,14 +383,16 @@ flag.metric(
 )
 if result.failure_day is not None:
     default_text = f"Day {result.failure_day}"
-elif result.outcome == "survives":
+elif result.outcome in OPEN_OUTCOMES:
     default_text = f"None in {horizon} days"
 else:
     default_text = "Avoided"
-if result.failure_day is None and result.outcome != "survives":
-    default_note = f"{OUTCOME_LABELS[result.outcome]} on day {result.end_day}"
-else:
+if result.failure_day is not None:
     default_note = demo.describe_shift(result.failure_day, reference.failure_day)
+elif result.outcome in OPEN_OUTCOMES:
+    default_note = OUTCOME_LABELS[result.outcome]
+else:
+    default_note = f"{OUTCOME_LABELS[result.outcome]} on day {result.end_day}"
 failure.metric(
     "Payments default",
     default_text,

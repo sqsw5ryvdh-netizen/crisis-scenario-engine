@@ -273,30 +273,30 @@ share is computed.
 
 Cumulative deposit loss in the central (deterministic) run, as a share of opening deposits,
 from the `dep_loss%` column of `python -m engine.run --bank <bank> --scenario <scenario>` with
-the configuration of the phase A commit (SPEC_V2). A run stops at the payments default day.
+the configuration of the phase B2 commit (SPEC_V2). A run stops at the payments default day.
 
 | Scenario | Bank | After day 1 | After day 2 | After day 5 | At the end (day) | Largest one-day loss |
 |---|---|---|---|---|---|---|
-| Fast run | Universal | 15.2% | 38.8% | - | 56.7% (4) | 23.6% |
-| Fast run | Retail | 9.4% | 24.6% | - | 40.0% (4) | 15.2% |
+| Fast run | Universal | 15.2% | 38.1% | 57.1% | 57.1% (5) | 22.9% |
+| Fast run | Retail | 9.4% | 23.8% | 40.7% | 40.7% (5) | 14.4% |
 | Fast run | Digital | 12.5% | 28.8% | - | 28.8% (2) | 16.3% |
-| Fast run | Specialised | 16.4% | 43.7% | - | 62.0% (4) | 27.2% |
-| Slow burn | Universal | 0.7% | 1.3% | 3.5% | 25.3% (30) | 1.1% |
-| Slow burn | Retail | 0.4% | 0.8% | 2.1% | 13.9% (30) | 0.6% |
-| Slow burn | Digital | 0.5% | 1.1% | 2.8% | 19.3% (30) | 0.8% |
-| Slow burn | Specialised | 0.7% | 1.4% | 3.8% | 31.0% (30) | 1.4% |
+| Fast run | Specialised | 16.4% | 42.6% | - | 62.0% (4) | 26.2% |
+| Slow burn | Universal | 0.7% | 1.3% | 3.5% | 24.4% (30) | 1.1% |
+| Slow burn | Retail | 0.4% | 0.8% | 2.1% | 13.4% (30) | 0.6% |
+| Slow burn | Digital | 0.5% | 1.1% | 2.8% | 17.7% (30) | 0.8% |
+| Slow burn | Specialised | 0.7% | 1.4% | 3.8% | 29.3% (30) | 1.3% |
 
 ### 7.5 Reading
 
 - **Fast run against the 2023 US runs.** The specialised and universal archetypes lose 15-16% of
-  deposits on day 1 and 39-44% by day 2. First Republic lost about 17% in one day and about 44%
+  deposits on day 1 and 38-43% by day 2. First Republic lost about 17% in one day and about 44%
   over two business days; Silicon Valley Bank lost about 25% in one day and faced requests for
   most of the rest the next day. The model's fast run is of the same order as First Republic and
   slower than Silicon Valley Bank.
 - **Digital archetype.** At 13% on day 1 and 29% by day 2 it still loses deposits more slowly
   than either US case, but it has so few liquid assets that it defaults on day 2. Its balance
   sheet and its speed factor are ASSUMPTION (section 8).
-- **Slow burn against Credit Suisse.** The universal archetype now loses 25% of deposits in 30
+- **Slow burn against Credit Suisse.** The universal archetype now loses 24% of deposits in 30
   days, against about 25% for Credit Suisse in its worst month. This match was obtained by
   setting the severity (section 8): it is an order-of-magnitude check, not an estimate.
 
@@ -338,9 +338,28 @@ Outcome of the 16 bank and scenario pairs after these changes: `docs/STATUS.md`.
   combination of decisions could keep a bank alive, because deposits kept leaving at the
   scenario's pace however calm depositors became. The cyber outage now eases from day 7 and
   the geopolitical shock from day 10, towards a severity of 0.5, halving the distance every 4
-  and 3 days. These six values are `ASSUMPTION`. They were chosen so that the runs without
-  decisions are unchanged (same stage days and default days as after phase A), not from
-  any data.
+  and 3 days. These six values are `ASSUMPTION`, not taken from any data. The cyber outage
+  values were replaced in phase B2 (section 10).
 - **Decision effects**, in `config/decisions.yaml`: the size of a statement's effect, the
   share, discount and settlement time of a portfolio sale, the ELA cap and the payout times
   are all `ASSUMPTION`. The two-day moratorium length comes from `docs/SPEC_V2.md`.
+
+## 10. Changes in SPEC_V2 phase B2
+
+- **Stable core**, in `config/model.yaml`. Only a flight-prone share of each deposit category
+  can leave: 20% of insured retail, 70% of uninsured retail, 85% of corporate and 100% of
+  financial deposits (ranges in the file). All four are `ASSUMPTION`; no data in this project
+  separates stable from flight-prone balances. The run-off rates of section 7 remain shares
+  of the whole stock and are divided by the flight-prone share in the engine, so the first
+  day of a run is unchanged and the comparison with the real cases in section 7 still holds
+  for day 1 (day 2 is 0.7 to 1.1 points lower than before). The shares were set so that the
+  fast run still ends in a payments default for every archetype without decisions.
+- **Cyber outage made milder**, in `config/scenarios.yaml`: severity 2.0 -> 0.8, news shocks
+  halved, and the pressure eases from day 5 (half-life 2 days, floor 0.2). The day the queue
+  is released now costs the universal archetype 12% of its deposits instead of 41%, about
+  half the fast run's worst day. These are design choices for a credible technical incident,
+  `ASSUMPTION`, not estimates.
+- **Outcome thresholds**, in `config/model.yaml`: a bank still open at day 30 is "stabilised"
+  when, on each of the last 3 days, the flag conditions do not hold, the liquidity buffer is
+  positive and the daily outflow is below 0.2% of opening deposits. Both numbers are
+  `ASSUMPTION`.

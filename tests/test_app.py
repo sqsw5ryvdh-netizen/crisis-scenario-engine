@@ -134,13 +134,13 @@ def test_moving_a_slider_reruns_in_under_one_second_and_shifts_failure_day():
     assert not at.metric[0].delta
     slider = next(s for s in at.slider if s.label.startswith("Uninsured deposits"))
     start = time.perf_counter()
-    slider.set_value(20).run(timeout=30)
+    slider.set_value(30).run(timeout=30)
     elapsed = time.perf_counter() - start
     assert not at.exception
     assert elapsed < 1.0, f"re-run took {elapsed:.2f}s"
-    assert (before, at.metric[0].value) == ("Day 2", "Day 4")
-    assert at.metric[0].delta == "2 days later than with the starting values (day 2)"
-    assert at.slider(key="day").value == 4  # the day view follows the new run
+    assert (before, at.metric[0].value) == ("Day 2", "Day 5")
+    assert at.metric[0].delta == "3 days later than with the starting values (day 2)"
+    assert at.slider(key="day").value == 5  # the day view follows the new run
 
 
 @pytest.mark.parametrize("tab", demo.TABS)
@@ -215,10 +215,10 @@ def test_play_reveals_the_run_from_day_zero_to_the_last_day(monkeypatch):
     at.selectbox(key="bank").set_value("universal").run(timeout=30)
     at.slider(key="day").set_value(2).run(timeout=30)
     assert any(m.value.startswith("**Day 2:") for m in at.markdown)
-    assert not any("Day 4," in m.value for m in at.markdown)  # the default is not shown yet
+    assert not any("Day 5," in m.value for m in at.markdown)  # the default is not shown yet
     at.button(key="play").click().run(timeout=30)
     assert not at.exception
-    assert at.slider(key="day").value == 4
+    assert at.slider(key="day").value == 5
     assert at.session_state["play_next"] is None
 
 
@@ -275,9 +275,9 @@ def test_full_demo_walk_forward_and_back(monkeypatch):
 
     at.button(key="demo_next").click().run(timeout=30)
     assert "step 5 of 6: Move a slider" in _panel_title(at)
-    next(s for s in at.slider if s.label.startswith("Uninsured")).set_value(20).run(timeout=30)
-    assert at.metric[0].value == "Day 4"
-    assert at.metric[0].delta.startswith("2 days later")
+    next(s for s in at.slider if s.label.startswith("Uninsured")).set_value(30).run(timeout=30)
+    assert at.metric[0].value == "Day 5"
+    assert at.metric[0].delta.startswith("3 days later")
 
     at.button(key="demo_next").click().run(timeout=30)
     assert "step 6 of 6: Export" in _panel_title(at)
@@ -288,12 +288,12 @@ def test_full_demo_walk_forward_and_back(monkeypatch):
     at.button(key="demo_back").click().run(timeout=30)
     assert "step 5 of 6" in _panel_title(at)
     assert at.session_state["view"] == demo.TAB_TIMELINE
-    assert at.metric[0].value == "Day 4"  # slider values survive moving between steps
+    assert at.metric[0].value == "Day 5"  # slider values survive moving between steps
 
     at.button(key="demo_exit").click().run(timeout=30)
     assert not at.exception
     assert not [m for m in at.markdown if m.value.startswith("**Guided demo")]
-    assert at.metric[0].value == "Day 4"
+    assert at.metric[0].value == "Day 5"
 
 
 # ------------------------------------------------- one-command start

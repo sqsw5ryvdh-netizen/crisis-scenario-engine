@@ -33,6 +33,36 @@ base_runoff_financial:
   unit: share of stock per day
   source: ASSUMPTION
 
+# --- Stable core: only the flight-prone share of each category can leave ---
+# The rest stays whatever happens (transaction balances, loyal or insured customers), so a
+# run slows down as the flight-prone part is used up. Shares of the opening stock.
+# The base run-off rates above stay shares of the whole stock: the engine divides them by the
+# flight-prone share, so the first day of a run is the same with or without a stable core.
+flight_prone_share_insured_retail:
+  value: 0.20
+  unit: share of opening stock
+  source: ASSUMPTION
+  low: 0.10
+  high: 0.30
+flight_prone_share_uninsured_retail:
+  value: 0.70
+  unit: share of opening stock
+  source: ASSUMPTION
+  low: 0.50
+  high: 0.85
+flight_prone_share_corporate:
+  value: 0.85
+  unit: share of opening stock
+  source: ASSUMPTION
+  low: 0.70
+  high: 0.95
+flight_prone_share_financial:
+  value: 1.00
+  unit: share of opening stock
+  source: ASSUMPTION
+  low: 0.90
+  high: 1.00
+
 # --- Panic multiplier = 1 + (max - 1) * logistic(steepness * (x - midpoint)) ---
 # x is a fading memory of deposit losses and news shocks (see panic_decay).
 panic_max_multiplier:
@@ -186,6 +216,17 @@ early_intervention_cet1_margin:
 likely_to_fail_survival_days:
   value: 3
   unit: days
+  source: ASSUMPTION
+# "Stabilised" at the end of a run: on each of the last `stabilised_days` days the flag
+# conditions do not hold, the liquidity buffer is positive and the daily outflow is below
+# `stabilised_outflow_share` of opening deposits.
+stabilised_days:
+  value: 3
+  unit: days
+  source: ASSUMPTION
+stabilised_outflow_share:
+  value: 0.002
+  unit: share of opening deposits per day
   source: ASSUMPTION
 resolution_funding_days:
   value: 5

@@ -24,6 +24,10 @@ SAMPLED_PARAMETERS = (
     "base_runoff_uninsured_retail",
     "base_runoff_corporate",
     "base_runoff_financial",
+    "flight_prone_share_insured_retail",
+    "flight_prone_share_uninsured_retail",
+    "flight_prone_share_corporate",
+    "flight_prone_share_financial",
     "panic_max_multiplier",
     "panic_steepness",
     "panic_midpoint",
@@ -72,7 +76,7 @@ class MonteCarloSummary:
 def _upper_bound(name: str) -> float:
     if name.endswith(("_haircut", "_discount")):
         return 0.99
-    if name.endswith("_share") or name.startswith("base_runoff_"):
+    if name.endswith("_share") or name.startswith(("base_runoff_", "flight_prone_share_")):
         return 1.0
     return math.inf
 

@@ -32,8 +32,8 @@ outlines the control to use. Next and Back move between steps; Exit demo leaves 
 4. **Watch the crisis unfold.** The timeline reveals one day at a time. The bank goes
    through recovery, early intervention and the likely-to-fail warning on day 1 and cannot
    pay its obligations on day 2. Play replays it; the day slider stops on a day.
-5. **Move a slider.** Lower Uninsured deposits from 45% to 20%: the payments default moves
-   from day 2 to day 4, and the line under the figure states the change.
+5. **Move a slider.** Lower Uninsured deposits from 45% to 30%: the payments default moves
+   from day 2 to day 5, and the line under the figure states the change.
 6. **Export the exercise script.** Download it as a Word document, with the injects and
    the daily data as CSV files.
 
@@ -92,6 +92,12 @@ the data files.
   and at that pace no bank defaults within 30 days.
 - **"Likely to fail" is a warning computed by the model.** The formal declaration is a
   decision on a path.
+- **How a run ends is named by fixed rules.** A bank still open after 30 days is
+  "stabilised" only if its warning conditions are gone, it has a liquidity buffer and
+  outflows have almost stopped; otherwise it is "kept open on emergency funding" or "still
+  under stress". A slow run that is still leaking on day 30 is not stabilised.
+- **Only part of the deposits can leave.** Each category has a flight-prone share; the rest
+  is a stable core. The shares are assumptions.
 - **Decision effects are assumptions**, including how fast a scenario's pressure eases.
   Bail-in and sale of business are outcome labels only: the model does not yet compute
   losses for creditors. The exported script does not mention decisions yet.

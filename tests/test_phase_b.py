@@ -11,7 +11,14 @@ from streamlit.testing.v1 import AppTest
 from app import demo
 from app.charts import build_path_comparison
 from engine.config import DEFAULT_CONFIG_DIR, load_config
-from engine.decisions import Choice, choices_of, decision_log_rows, scorecard_rows
+from engine.decisions import (
+    OPEN_OUTCOMES,
+    OUTCOME_LABELS,
+    Choice,
+    choices_of,
+    decision_log_rows,
+    scorecard_rows,
+)
 from engine.model import simulate
 from engine.montecarlo import run_monte_carlo
 from engine.run import main
@@ -110,7 +117,9 @@ def test_default_path_reproduces_the_run_without_decisions(bank, scenario):
     assert late.events == plain.events
     assert late.failure_day == plain.failure_day
     assert late.decision_log == () and late.foltf_day is None
-    assert late.outcome == ("payments_default" if plain.failure_day is not None else "survives")
+    assert late.outcome == plain.outcome
+    assert (late.outcome == "payments_default") == (plain.failure_day is not None)
+    assert late.outcome in ("payments_default",) + OPEN_OUTCOMES
 
 
 @pytest.mark.parametrize("path", list(DECISIONS.paths))
@@ -179,10 +188,11 @@ def test_portfolio_sale_raises_cash_after_settlement_and_books_the_loss():
 
 
 def test_portfolio_sale_does_not_use_fire_sale_capacity():
-    result = run_path("universal", "geopolitical", "support_package")
+    # Specialised lender: the one pair where the package includes both kinds of sale.
+    result = run_path("specialised", "geopolitical", "support_package")
     table = result.table
     cap = CONFIG.model.fire_sale_daily_cap_share.value
-    initial = CONFIG.banks["universal"].assets.illiquid_assets
+    initial = CONFIG.banks["specialised"].assets.illiquid_assets
     discount = CONFIG.model.with_overrides(
         CONFIG.scenarios["geopolitical"].overrides
     ).fire_sale_discount.value
@@ -265,7 +275,11 @@ def test_ela_cap_limits_what_is_drawn():
     cap = option.params["cap_share"].value * CONFIG.banks["universal"].assets.total()
     assert capped.table["ela_funding"].max() == pytest.approx(cap)
     assert full.table["ela_funding"].max() > cap
-    assert late.failure_day < capped.failure_day < full.failure_day
+    # Without ELA the bank defaults; with the cap it stays open but is not stabilised;
+    # without a cap it is.
+    assert late.outcome == "payments_default"
+    assert capped.outcome == "emergency_funding" and capped.scorecard.ela_outstanding > 0
+    assert full.outcome == "stabilised"
 
 
 def test_capped_ela_counts_in_the_buffer_only_up_to_the_cap():
@@ -410,9 +424,9 @@ def test_three_fast_run_paths_of_the_universal_bank_end_differently():
     refused = run_path("universal", "fast_run", "ela_refused")
     granted = run_path("universal", "fast_run", "ela_granted")
     early = run_path("universal", "fast_run", "early_foltf")
-    assert (refused.outcome, refused.failure_day) == ("payments_default", 4)
-    assert (granted.outcome, granted.failure_day) == ("payments_default", 9)
-    assert granted.failure_day > 5  # it gets through the first five days
+    assert (refused.outcome, refused.failure_day) == ("payments_default", 5)
+    assert (granted.outcome, granted.failure_day) == ("stabilised", None)
+    assert granted.end_day == int(CONFIG.model.horizon_days.value)
     assert (early.outcome, early.end_day, early.failure_day) == ("bail_in", 4, None)
     assert early.foltf_day == 2
     losses = [r.scorecard.deposits_lost_pct for r in (early, refused, granted)]
@@ -420,24 +434,21 @@ def test_three_fast_run_paths_of_the_universal_bank_end_differently():
     assert granted.scorecard.ela_outstanding > 0 == refused.scorecard.ela_outstanding
 
 
-@pytest.mark.parametrize("bank,scenario", [("universal", "cyber_outage"), ("retail", "geopolitical")])
-def test_a_combination_of_decisions_lets_the_bank_survive_where_it_otherwise_defaults(
-    bank, scenario
-):
-    horizon = int(CONFIG.model.horizon_days.value)
+@pytest.mark.parametrize("bank", ["universal", "retail"])
+def test_support_package_stabilises_the_bank_in_the_geopolitical_shock(bank):
+    """Phase B2 acceptance: stabilised with the package, not without decisions."""
+    late = run_path(bank, "geopolitical", "act_late")
+    package = run_path(bank, "geopolitical", "support_package")
     requirement = CONFIG.banks[bank].capital.capital_requirement_ratio
-    late = run_path(bank, scenario, "act_late")
-    ela_only = run_path(bank, scenario, "ela_granted")
-    package = run_path(bank, scenario, "support_package")
-    assert late.outcome == "payments_default"
-    # ELA alone avoids the default, but capital ends below the requirement.
-    assert ela_only.outcome == "survives"
-    assert ela_only.table["cet1_ratio"].min() < requirement
-    # The full package keeps the bank paying for 30 days with capital above the requirement.
-    assert package.outcome == "survives" and package.end_day == horizon
+    assert late.outcome == "under_stress" and late.failure_day is None
+    assert late.table["liquidity_buffer"].iloc[-1] == pytest.approx(0.0)
+    assert late.table["flag_active"].iloc[-1]
+    assert late.table["cet1_ratio"].iloc[-1] < requirement
+    assert package.outcome == "stabilised"
+    last = package.table.iloc[-1]
+    assert last["liquidity_buffer"] > 0 and not last["flag_active"]
     assert package.table["cet1_ratio"].min() >= requirement
     assert len(package.decision_log) == 3
-    assert package.scorecard.losses_booked < ela_only.scorecard.losses_booked
 
 
 # ------------------------------------------------- scenario pressure that fades
@@ -465,17 +476,18 @@ def test_only_the_cyber_and_geopolitical_scenarios_fade():
 
 @pytest.mark.parametrize("scenario", ["cyber_outage", "geopolitical"])
 @pytest.mark.parametrize("bank", list(CONFIG.banks))
-def test_fade_does_not_change_the_run_without_decisions(bank, scenario):
+def test_fade_never_makes_a_run_worse(bank, scenario):
     preset = CONFIG.scenarios[scenario]
-    constant = preset.model_copy(update={"fade": None})
     with_fade = simulate(CONFIG.banks[bank], CONFIG.model, preset)
-    without = simulate(CONFIG.banks[bank], CONFIG.model, constant)
-    assert with_fade.failure_day == without.failure_day is not None
-    stages = lambda r: [(e.kind, e.day) for e in r.events if e.kind != "news"]  # noqa: E731
-    assert stages(with_fade) == stages(without)
-    assert with_fade.table["cum_deposit_loss_pct"].iloc[-1] == pytest.approx(
-        without.table["cum_deposit_loss_pct"].iloc[-1], abs=0.5
-    )
+    constant = simulate(CONFIG.banks[bank], CONFIG.model, preset.model_copy(update={"fade": None}))
+    start = int(preset.fade.from_day.value)
+    before = lambda r: r.table[r.table["day"] < start]  # noqa: E731
+    assert before(with_fade).equals(before(constant))
+    end = lambda r: r.failure_day if r.failure_day is not None else 99  # noqa: E731
+    assert end(with_fade) >= end(constant)
+    if with_fade.failure_day is None and constant.failure_day is None:
+        loss = lambda r: r.table["cum_deposit_loss_pct"].iloc[-1]  # noqa: E731
+        assert loss(with_fade) <= loss(constant) + TOL
 
 
 def test_fade_lowers_outflows_only_from_its_first_day():
@@ -580,7 +592,7 @@ def _open_decisions_tab():
 def test_app_decisions_tab_compares_the_selected_path_with_a_reference():
     at = _open_decisions_tab()
     assert not at.exception
-    assert at.metric[0].value == "Day 4"
+    assert at.metric[0].value == "Day 5"
     assert len(at.info) == 1  # no decision on the default path
     at.selectbox(key="decision_path").set_value("early_foltf_liquidation").run(timeout=30)
     assert not at.exception
@@ -598,9 +610,10 @@ def test_app_decisions_tab_compares_the_selected_path_with_a_reference():
 def test_app_single_decision_can_be_changed_after_loading_a_path():
     at = _open_decisions_tab()
     at.selectbox(key="decision_path").set_value("ela_granted").run(timeout=30)
-    assert at.metric[0].value == "Day 9"
+    assert (at.metric[0].value, at.metric[0].delta) == ("None in 30 days", "Stabilised")
     at.selectbox(key="dec:ela:option").set_value("grant_capped").run(timeout=30)
     assert not at.exception
-    assert at.metric[0].value == "Day 6"  # the cap is reached before the collateral runs out
+    # The cap is reached before the run is over: open, but not stabilised.
+    assert at.metric[0].delta == OUTCOME_LABELS["emergency_funding"]
     at.selectbox(key="reference_path").set_value("ela_granted").run(timeout=30)
     assert list(at.dataframe[0].value.columns) == ["Figure", "ELA granted", "Selected path"]

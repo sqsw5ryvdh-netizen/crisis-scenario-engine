@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
-from engine.decisions import OUTCOME_LABELS, OUTCOME_SURVIVES
+from engine.decisions import OPEN_OUTCOMES, OUTCOME_LABELS
 from engine.model import SimulationResult, uninsured_share
 from engine.schema import ACTORS, INJECT_EVENTS, Bank, InjectsConfig, ModelParams, Scenario
 
@@ -149,7 +149,7 @@ def _key_events(
         used = result.table[result.table[column] > _TINY]
         if not used.empty:
             add(int(used["day"].iloc[0]), kind)
-    if result.outcome == OUTCOME_SURVIVES:
+    if result.outcome in OPEN_OUTCOMES:
         add(last_day, "end_no_failure")
 
     for events in found.values():
@@ -224,7 +224,7 @@ def build_script(
     final = _context(rows[last_day], bank, scenario, result, horizon)
     if result.failure_day is not None:
         summary = templates.summary.failure
-    elif result.outcome == OUTCOME_SURVIVES:
+    elif result.outcome in OPEN_OUTCOMES:
         summary = templates.summary.no_failure
     else:
         summary = templates.summary.resolved

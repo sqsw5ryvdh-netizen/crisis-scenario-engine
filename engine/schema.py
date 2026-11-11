@@ -222,6 +222,11 @@ class ModelParams(StrictModel):
     base_runoff_uninsured_retail: Parameter
     base_runoff_corporate: Parameter
     base_runoff_financial: Parameter
+    # Stable core: only this share of each category's opening stock can leave.
+    flight_prone_share_insured_retail: Parameter
+    flight_prone_share_uninsured_retail: Parameter
+    flight_prone_share_corporate: Parameter
+    flight_prone_share_financial: Parameter
 
     # Panic multiplier = 1 + (max - 1) * logistic(steepness * (x - midpoint)).
     # x is a fading memory: each day it loses the share `panic_decay`, then the day's new
@@ -267,6 +272,9 @@ class ModelParams(StrictModel):
     # "Likely to fail" flag: survival horizon below this number of days, or CET1 ratio
     # projected below the requirement over the same number of days.
     likely_to_fail_survival_days: Parameter
+    # Thresholds of the "stabilised" outcome at the end of a run.
+    stabilised_days: Parameter
+    stabilised_outflow_share: Parameter
     resolution_funding_days: Parameter
 
     # Contagion: panic shock received by a second bank when the first bank reaches a
@@ -288,7 +296,7 @@ class ModelParams(StrictModel):
             if value < 0:
                 raise ValueError(f"{name} must be >= 0")
             is_share = name.endswith(("_haircut", "_discount", "_share")) or name.startswith(
-                ("base_runoff_", "lcr_outflow_rate_")
+                ("base_runoff_", "lcr_outflow_rate_", "flight_prone_share_")
             )
             if is_share and value > 1:
                 raise ValueError(f"{name} must be <= 1")
@@ -300,9 +308,11 @@ class ModelParams(StrictModel):
             raise ValueError("panic_max_multiplier must be >= 1")
         if self.panic_decay.value > 1:
             raise ValueError("panic_decay must be <= 1")
-        days = self.likely_to_fail_survival_days.value
-        if days != int(days):
-            raise ValueError("likely_to_fail_survival_days must be a whole number")
+        for name in ("likely_to_fail_survival_days", "stabilised_days"):
+            if getattr(self, name).value != int(getattr(self, name).value):
+                raise ValueError(f"{name} must be a whole number")
+        if self.stabilised_days.value < 1:
+            raise ValueError("stabilised_days must be >= 1")
         for name in ("monte_carlo_runs", "monte_carlo_seed"):
             if getattr(self, name).value != int(getattr(self, name).value):
                 raise ValueError(f"{name} must be a whole number")

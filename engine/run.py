@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from engine.config import DEFAULT_CONFIG_DIR, load_config
-from engine.decisions import OUTCOME_LABELS, choices_of, decision_log_rows, scorecard_rows
+from engine.decisions import OPEN_OUTCOMES, OUTCOME_LABELS, choices_of, decision_log_rows, scorecard_rows
 from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx
 from engine.injects import build_script
 from engine.model import SimulationResult, simulate
@@ -116,8 +116,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for label, value in scorecard_rows(result.scorecard, bank.unit):
         print(f"  {label:<46} {value}")
     print()
-    if result.outcome == "survives":
-        print(f"Outcome: no payments default within {horizon} days.")
+    if result.outcome in OPEN_OUTCOMES:
+        print(f"Outcome after {horizon} days: {OUTCOME_LABELS[result.outcome]}.")
     elif result.failure_day is None:
         print(f"Outcome: {OUTCOME_LABELS[result.outcome]} on day {result.end_day}.")
     else:

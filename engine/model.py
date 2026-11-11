@@ -27,6 +27,8 @@ Accounting conventions:
 - ELA is a new liability against what is left of the eligible collateral, then against a
   share of the loan book; pledged loans cannot be sold.
 - An archetype's run-off speed factor multiplies the scenario severity.
+- Stable core: only the flight-prone share of each category's opening stock can leave; the
+  run-off rate applies to what is left of that share.
 - A scenario may let its severity fade towards a floor once its trigger is over.
 - Payment outage: withdrawals and maturing wholesale funding are queued, nothing is
   paid, and the whole queue is due on the first day after the outage.
@@ -44,7 +46,10 @@ import pandas as pd
 from engine.decisions import (
     OUTCOME_DEFAULT,
     OUTCOME_LIQUIDATION,
-    OUTCOME_SURVIVES,
+    OPEN_OUTCOMES,
+    OUTCOME_EMERGENCY_FUNDING,
+    OUTCOME_STABILISED,
+    OUTCOME_UNDER_STRESS,
     Choice,
     DecisionRecord,
     Scorecard,
@@ -94,6 +99,16 @@ class BankState:
     encumbered_illiquid: float = 0.0
     # Loans sold through a recovery option (a record; they do not use fire-sale capacity).
     portfolio_sold: float = 0.0
+    # Part of each deposit category that never leaves (same order as DEPOSIT_CATEGORIES).
+    stable_core: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
+
+    @property
+    def runnable_deposits(self) -> tuple[float, ...]:
+        """Per category: what can still be asked back, net of withdrawals already queued."""
+        return tuple(
+            max(0.0, stock - core - queued)
+            for stock, core, queued in zip(self.deposits, self.stable_core, self.queued_deposits)
+        )
 
     @property
     def total_deposits(self) -> float:
@@ -167,11 +182,14 @@ class SimulationResult:
     failure_day: Optional[int]  # day of the payments default
     funding_need: Optional[FundingNeed]
     likely_to_fail_day: Optional[int] = None  # day the forward-looking flag is raised
-    outcome: str = OUTCOME_SURVIVES  # survives | payments_default | a resolution tool
+    # stabilised | emergency_funding | under_stress | payments_default | a resolution tool
+    outcome: str = OUTCOME_UNDER_STRESS
     end_day: int = 0  # last simulated day
     foltf_day: Optional[int] = None  # day the FOLTF declaration is in effect
     decision_log: tuple[DecisionRecord, ...] = ()
     scorecard: Optional[Scorecard] = None
+    # First day from which the flag conditions no longer hold (None: never raised, or standing).
+    flag_cleared_day: Optional[int] = None
 
 
 # --------------------------------------------------------------------------- state
@@ -256,12 +274,20 @@ def rollover_fraction(x: float, p: ModelParams) -> float:
 
 
 def runoff_rates(x: float, severity: float, p: ModelParams) -> tuple[float, ...]:
-    """Daily run-off rate per deposit category, capped at 100% of the stock."""
+    """Daily run-off rate of the flight-prone part of each deposit category.
+
+    The base rates are shares of the whole stock. Only the flight-prone share can leave, so
+    the rate is divided by that share: on the first day the outflow is the same as if the
+    rate applied to the whole stock, and it then falls as the flight-prone part is used up.
+    Capped at 100% of what is left.
+    """
     multiplier = panic_multiplier(x, p)
-    return tuple(
-        min(1.0, getattr(p, f"base_runoff_{name}").value * severity * multiplier)
-        for name in DEPOSIT_CATEGORIES
-    )
+    rates = []
+    for name in DEPOSIT_CATEGORIES:
+        share = getattr(p, f"flight_prone_share_{name}").value
+        rate = getattr(p, f"base_runoff_{name}").value * severity * multiplier
+        rates.append(min(1.0, rate / share) if share > 0 else 0.0)
+    return tuple(rates)
 
 
 # --------------------------------------------------------------------------- waterfall
@@ -480,8 +506,8 @@ def projected_outflows(
     """Outflows over the next `days` days with panic frozen at its current level."""
     rates = runoff_rates(x, severity, p)
     total = 0.0
-    for stock, rate in zip(state.deposits, rates):
-        total += stock * (1.0 - (1.0 - rate) ** days)
+    for runnable, rate in zip(state.runnable_deposits, rates):
+        total += runnable * (1.0 - (1.0 - rate) ** days)
     not_rolled = 1.0 - rollover_fraction(x, p)
     total += not_rolled * sum(a for d, a in state.wholesale_ladder if day < d <= day + days)
     return total
@@ -558,8 +584,10 @@ def projected_cet1_ratio(
     rollover = rollover_fraction(x, p)
     for ahead in range(day + 1, day + days + 1):
         deposit_outflows = tuple(
-            queued + (stock - queued) * rate
-            for stock, queued, rate in zip(state.deposits, state.queued_deposits, rates)
+            queued + runnable * rate
+            for queued, runnable, rate in zip(
+                state.queued_deposits, state.runnable_deposits, rates
+            )
         )
         due = sum(a for d, a in state.wholesale_ladder if d == ahead) + state.wholesale_overdue
         remaining_ladder = tuple((d, a) for d, a in state.wholesale_ladder if d != ahead)
@@ -692,6 +720,9 @@ def _check_triggers(
             f"CET1 ratio projected at {row['cet1_ratio_projected']:.1%} within {flag_days} "
             f"days, below requirement {requirement:.1%}"
         )
+    # The stage never goes back, but whether the flag conditions hold today is kept as well:
+    # it decides whether a bank that is still open at the end counts as stabilised.
+    row["flag_active"] = bool(flag_reasons)
 
     fail_reasons = []
     if row["unmet_outflow"] > EPS:
@@ -774,6 +805,14 @@ def simulate(
     lead = int(decisions.lead_days.value) if decisions is not None else 1
 
     state = initial_state(bank)
+    # Stable core: the part of each category's opening stock that is not flight-prone.
+    state = replace(
+        state,
+        stable_core=tuple(
+            stock * (1.0 - getattr(p, f"flight_prone_share_{name}").value)
+            for name, stock in zip(DEPOSIT_CATEGORIES, state.deposits)
+        ),
+    )
     initial_deposits = state.total_deposits
     initial_illiquid = state.illiquid_assets
     initial_assets = state.total_assets
@@ -955,8 +994,7 @@ def simulate(
         rollover = rollover_fraction(x, p)
         rates = runoff_rates(x, severity, p)
         requests = tuple(
-            (stock - queued) * rate
-            for stock, queued, rate in zip(state.deposits, state.queued_deposits, rates)
+            runnable * rate for runnable, rate in zip(state.runnable_deposits, rates)
         )
         maturing = sum(a for d, a in state.wholesale_ladder if d == day)
         remaining_ladder = tuple((d, a) for d, a in state.wholesale_ladder if d != day)
@@ -1015,9 +1053,32 @@ def simulate(
     elif tool is not None:
         outcome = tool
     else:
-        outcome = OUTCOME_SURVIVES
+        # Still open at the end of the horizon: stabilised, or kept going.
+        last = rows[-int(p.stabilised_days.value):]
+        calm = p.stabilised_outflow_share.value * initial_deposits
+        stabilised = len(rows) > int(p.stabilised_days.value) and all(
+            not r["flag_active"]
+            and r["liquidity_buffer"] > EPS
+            and r["outflow_total"] + r["queued_withdrawals"] <= calm
+            for r in last
+        )
+        if stabilised:
+            outcome = OUTCOME_STABILISED
+        elif state.ela_funding > EPS:
+            outcome = OUTCOME_EMERGENCY_FUNDING
+        else:
+            outcome = OUTCOME_UNDER_STRESS
 
-    if outcome != OUTCOME_SURVIVES:
+    # First day from which the flag conditions no longer hold, for a bank that is still open
+    # and had the flag raised.
+    flag_cleared_day: Optional[int] = None
+    raised = any(e.kind == "likely_to_fail" for e in events)
+    if outcome in OPEN_OUTCOMES and raised and not rows[-1]["flag_active"]:
+        flag_cleared_day = next(
+            r["day"] for i, r in enumerate(rows) if not any(x["flag_active"] for x in rows[i:])
+        )
+
+    if outcome not in OPEN_OUTCOMES:
         days = int(p.resolution_funding_days.value)
         projected = projected_outflows(state, day, next_x(state), severity, days, p)
         remaining = liquidity_buffer(state, cb_usable(day), p, headroom(day, state))
@@ -1064,4 +1125,5 @@ def simulate(
         foltf_day=foltf_day,
         decision_log=tuple(log),
         scorecard=scorecard,
+        flag_cleared_day=flag_cleared_day,
     )

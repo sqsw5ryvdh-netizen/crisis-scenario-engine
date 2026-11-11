@@ -11,10 +11,15 @@ from typing import Optional
 
 from engine.schema import DecisionPath
 
-OUTCOME_SURVIVES = "survives"
+# The bank is still open at the end of the horizon:
+OUTCOME_STABILISED = "stabilised"  # flag conditions gone, positive buffer, outflows near zero
+OUTCOME_EMERGENCY_FUNDING = "emergency_funding"  # not stabilised, ELA outstanding
+OUTCOME_UNDER_STRESS = "under_stress"  # not stabilised, without ELA
+OPEN_OUTCOMES = (OUTCOME_STABILISED, OUTCOME_EMERGENCY_FUNDING, OUTCOME_UNDER_STRESS)
+# The run ended before the horizon:
 OUTCOME_DEFAULT = "payments_default"
 OUTCOME_LIQUIDATION = "liquidation"
-# The other outcomes are the resolution tools: "bail_in" and "sale_of_business".
+# ... or with a resolution tool: "bail_in" or "sale_of_business".
 
 
 @dataclass(frozen=True)
@@ -70,7 +75,9 @@ def choices_of(path: DecisionPath) -> tuple[Choice, ...]:
 # ------------------------------------------------- tables for the CLI and the app
 
 OUTCOME_LABELS = {
-    OUTCOME_SURVIVES: "Survives the horizon",
+    OUTCOME_STABILISED: "Stabilised",
+    OUTCOME_EMERGENCY_FUNDING: "Kept open on emergency funding",
+    OUTCOME_UNDER_STRESS: "Still under stress, no default",
     OUTCOME_DEFAULT: "Payments default (disorderly)",
     "bail_in": "Resolution: bail-in",
     "sale_of_business": "Resolution: sale of business",

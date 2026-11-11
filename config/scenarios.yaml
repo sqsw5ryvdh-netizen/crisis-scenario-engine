@@ -46,26 +46,27 @@ slow_burn:
 
 cyber_outage:
   name: Cyber/ICT outage
-  description: Payments are blocked for three days; queued withdrawals hit when service returns.
+  description: Payments are blocked for three days; queued withdrawals are paid when service returns, then the pressure eases quickly.
+  # A technical incident, clearly milder than the fast run: set in phase B2 so that the day
+  # the queue is released costs about half the fast run's worst day. ASSUMPTION.
   severity:
-    value: 2.0
-    low: 1.2
-    high: 3.2
+    value: 0.8
+    low: 0.5
+    high: 1.3
     unit: multiplier
     source: ASSUMPTION
-  # The pressure eases once service has been back for a few days.
-  # Values chosen so that the run without decisions is unchanged; all ASSUMPTION.
+  # The pressure eases quickly once service is back (day 4).
   fade:
     from_day:
-      value: 7
+      value: 5
       unit: day
       source: ASSUMPTION
     half_life_days:
-      value: 4
+      value: 2
       unit: days
       source: ASSUMPTION
     floor:
-      value: 0.5
+      value: 0.2
       unit: multiplier
       source: ASSUMPTION
   overrides:
@@ -80,13 +81,13 @@ cyber_outage:
   news_events:
     - day: 1
       headline: Customers cannot log in or make payments; the bank reports a technical incident.
-      panic_shock: 0.05
+      panic_shock: 0.025
     - day: 2
       headline: The bank confirms a cyber attack and gives no date for restoring service.
-      panic_shock: 0.05
+      panic_shock: 0.025
     - day: 4
       headline: Service is restored; customers rush to move their money.
-      panic_shock: 0.03
+      panic_shock: 0.015
 
 geopolitical:
   name: Geopolitical shock
@@ -97,8 +98,7 @@ geopolitical:
     high: 2.4
     unit: multiplier
     source: ASSUMPTION
-  # The pressure eases once markets have absorbed the shock.
-  # Values chosen so that the run without decisions is unchanged; all ASSUMPTION.
+  # The pressure eases once markets have absorbed the shock. ASSUMPTION.
   fade:
     from_day:
       value: 10

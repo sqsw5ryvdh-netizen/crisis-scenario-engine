@@ -124,7 +124,9 @@ def test_capital_below_requirement_raises_the_flag_but_does_not_stop_the_run():
     below = table[table["cet1_ratio"] < requirement]
     assert not below.empty
     assert result.likely_to_fail_day <= int(below["day"].iloc[0])
-    assert result.failure_day > int(below["day"].iloc[0])  # it kept paying for some days
+    # It kept paying after the breach: here until the end of the horizon.
+    assert result.failure_day is None or result.failure_day > int(below["day"].iloc[0])
+    assert result.table["day"].iloc[-1] > int(below["day"].iloc[0])
 
 
 def test_projected_capital_is_never_above_the_current_ratio():
@@ -220,9 +222,10 @@ def test_usable_ela_counts_in_the_liquidity_buffer():
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
 def test_speed_factor_acts_like_severity(scenario):
+    # Without a fade: a fading severity moves towards a floor, which the factor then scales.
     base = CONFIG.scenarios[scenario].severity.value
-    by_factor = run("retail", scenario, speed=2.0).table
-    by_severity = run("retail", scenario, severity=severity(2.0 * base)).table
+    by_factor = run("retail", scenario, speed=2.0, fade=None).table
+    by_severity = run("retail", scenario, severity=severity(2.0 * base), fade=None).table
     assert by_factor.drop(columns="status").equals(by_severity.drop(columns="status"))
 
 
@@ -274,9 +277,11 @@ def test_slow_burn_loss_of_the_universal_bank_is_of_the_documented_order():
 
 
 def test_run_stops_when_capital_is_exhausted_and_cet1_never_goes_negative():
-    # With ELA, and pressure that never eases, the universal bank keeps finding liquidity
-    # until its capital is gone.
-    result = run("universal", "geopolitical", ela_day=2, fade=None)
+    # With ELA, pressure that never eases and no stable core, the universal bank keeps
+    # finding liquidity until its capital is gone.
+    no_core = {f"flight_prone_share_{name}": 1.0 for name in
+               ("insured_retail", "uninsured_retail", "corporate", "financial")}
+    result = run("universal", "geopolitical", overrides=no_core, ela_day=2, fade=None)
     table = result.table
     assert (table["cet1"] >= -TOL).all()
     assert result.failure_day is not None
