@@ -69,34 +69,36 @@ def bank_table(config: Config) -> pd.DataFrame:
     for bank in config.banks.values():
         deposits = bank.liabilities.deposits
         wholesale = bank.liabilities.wholesale_funding
+        # (label, line key for the source, value, unit)
         items = [
-            ("Cash and central bank reserves", bank.assets.cash_reserves, bank.unit),
-            ("HQLA Level 1", bank.assets.hqla_level1, bank.unit),
-            ("HQLA Level 2", bank.assets.hqla_level2, bank.unit),
-            ("Other eligible collateral", bank.assets.other_eligible_collateral, bank.unit),
-            ("Illiquid assets", bank.assets.illiquid_assets, bank.unit),
-            ("Deposits: insured retail", deposits.insured_retail, bank.unit),
-            ("Deposits: uninsured retail", deposits.uninsured_retail, bank.unit),
-            ("Deposits: corporate", deposits.corporate, bank.unit),
-            ("Deposits: financial", deposits.financial, bank.unit),
-            ("Wholesale funding maturing within the horizon", sum(wholesale.maturing.values()),
-             bank.unit),
-            ("Wholesale funding beyond the horizon", wholesale.beyond_horizon, bank.unit),
-            ("Other liabilities", bank.liabilities.other_liabilities, bank.unit),
-            ("CET1 capital", bank.capital.cet1, bank.unit),
-            ("Risk-weighted assets", bank.capital.rwa, bank.unit),
-            ("Capital requirement", bank.capital.capital_requirement_ratio, "ratio of RWA"),
+            ("Cash and central bank reserves", "cash_reserves", bank.assets.cash_reserves),
+            ("HQLA Level 1", "hqla_level1", bank.assets.hqla_level1),
+            ("HQLA Level 2", "hqla_level2", bank.assets.hqla_level2),
+            ("Other eligible collateral", "other_eligible_collateral",
+             bank.assets.other_eligible_collateral),
+            ("Illiquid assets", "illiquid_assets", bank.assets.illiquid_assets),
+            ("Deposits: insured retail", "insured_retail", deposits.insured_retail),
+            ("Deposits: uninsured retail", "uninsured_retail", deposits.uninsured_retail),
+            ("Deposits: corporate", "corporate", deposits.corporate),
+            ("Deposits: financial", "financial", deposits.financial),
+            ("Wholesale funding (total)", "wholesale_funding", wholesale.total()),
+            ("Other liabilities", "other_liabilities", bank.liabilities.other_liabilities),
+            ("CET1 capital", "cet1", bank.capital.cet1),
+            ("Risk-weighted assets", "rwa", bank.capital.rwa),
+            ("Capital requirement", "capital_requirement_ratio",
+             bank.capital.capital_requirement_ratio),
         ]
-        status = FLAG if bank.source.strip().upper() == ASSUMPTION else SOURCED
-        for item, value, unit in items:
+        for label, key, value in items:
+            source = bank.source_of(key)
             rows.append(
                 {
                     "Bank": bank.name,
-                    "Status": status,
-                    "Item": item,
+                    # A line is flagged as soon as any part of it rests on an assumption.
+                    "Status": FLAG if ASSUMPTION in source.upper() else SOURCED,
+                    "Item": label,
                     "Value": value,
-                    "Unit": unit,
-                    "Source": bank.source,
+                    "Unit": "ratio of RWA" if key == "capital_requirement_ratio" else bank.unit,
+                    "Source": source,
                 }
             )
     return pd.DataFrame(rows)

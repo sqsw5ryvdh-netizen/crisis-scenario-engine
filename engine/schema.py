@@ -106,17 +106,46 @@ class Capital(StrictModel):
     mrel: Optional[float] = Field(default=None, ge=0)
 
 
+# Balance sheet lines that can carry their own source (see Bank.sources).
+BANK_ITEMS = (
+    "cash_reserves",
+    "hqla_level1",
+    "hqla_level2",
+    "other_eligible_collateral",
+    "illiquid_assets",
+    "insured_retail",
+    "uninsured_retail",
+    "corporate",
+    "financial",
+    "wholesale_funding",
+    "other_liabilities",
+    "cet1",
+    "rwa",
+    "capital_requirement_ratio",
+)
+
+
 class Bank(StrictModel):
     name: str = Field(min_length=1)
     description: str = ""
     unit: str = Field(min_length=1)
+    # Default source of every line; `sources` overrides it line by line.
     source: str = Field(min_length=1)
+    sources: dict[str, str] = Field(default_factory=dict)
     assets: Assets
     liabilities: Liabilities
     capital: Capital
 
+    def source_of(self, item: str) -> str:
+        return self.sources.get(item, self.source)
+
     @model_validator(mode="after")
     def _check_identity(self) -> "Bank":
+        unknown = set(self.sources) - set(BANK_ITEMS)
+        if unknown:
+            raise ValueError(f"sources for unknown lines: {sorted(unknown)}")
+        if any(not text.strip() for text in self.sources.values()):
+            raise ValueError("a line source must not be empty")
         gap = self.assets.total() - (self.liabilities.total() + self.capital.cet1)
         if abs(gap) > BALANCE_TOLERANCE:
             raise ValueError(

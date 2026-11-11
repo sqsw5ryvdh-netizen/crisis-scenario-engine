@@ -1,4 +1,5 @@
-# Bank archetypes. All amounts are fictitious, with realistic proportions.
+# Bank archetypes. All banks are fictitious. Proportions of the universal and retail archetypes
+# are calibrated on EBA data where available (docs/CALIBRATION.md); the rest is ASSUMPTION.
 # Equity is represented by CET1: assets = liabilities + cet1.
 # wholesale_funding.maturing: amount falling due on each simulated day (key = day).
 
@@ -6,61 +7,85 @@ universal:
   name: Large universal bank
   description: Diversified group with retail, corporate and market activities and sizeable wholesale funding.
   unit: EUR bn
+  # Lines without an entry in `sources` (HQLA, collateral, capital requirement) and the size.
   source: ASSUMPTION
+  sources:
+    cash_reserves: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2521001 / 2521010; docs/CALIBRATION.md"
+    illiquid_assets: "Remainder of total assets; depends on the HQLA and collateral lines, which are ASSUMPTION"
+    insured_retail: "Retail total: EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of household deposits; insured share is ASSUMPTION"
+    uninsured_retail: "Retail total: EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of household deposits; insured share is ASSUMPTION"
+    corporate: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of deposits from non-financial corporations and general governments; docs/CALIBRATION.md"
+    financial: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of deposits from other financial corporations and credit institutions; docs/CALIBRATION.md"
+    wholesale_funding: "Total: EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of debt securities issued; maturity ladder is ASSUMPTION"
+    other_liabilities: "Remainder of total assets after deposits, wholesale funding and CET1; docs/CALIBRATION.md"
+    cet1: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520102 / 2521010; docs/CALIBRATION.md"
+    rwa: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520138 / 2521010; docs/CALIBRATION.md"
   assets:
-    cash_reserves: 110.0
+    cash_reserves: 99.4
     hqla_level1: 120.0
     hqla_level2: 30.0
     other_eligible_collateral: 120.0
-    illiquid_assets: 620.0
+    illiquid_assets: 630.6
   liabilities:
     deposits:
-      insured_retail: 290.0
-      uninsured_retail: 100.0
-      corporate: 170.0
-      financial: 40.0
+      insured_retail: 219.8
+      uninsured_retail: 75.8
+      corporate: 195.3
+      financial: 129.7
     wholesale_funding:
       maturing:
-        2: 5.0
-        5: 5.0
-        9: 8.0
-        14: 7.0
-        21: 10.0
-        27: 10.0
-      beyond_horizon: 205.0
-    other_liabilities: 95.0
+        2: 3.6
+        5: 3.6
+        9: 5.8
+        14: 5.1
+        21: 7.3
+        27: 7.3
+      beyond_horizon: 148.6
+    other_liabilities: 150.5
   capital:
-    cet1: 55.0
-    rwa: 380.0
+    cet1: 47.6
+    rwa: 303.3
     capital_requirement_ratio: 0.11
 
 retail:
   name: Mid-size retail bank
   description: Domestic branch-based bank funded mainly by insured household deposits.
   unit: EUR bn
+  # Lines without an entry in `sources` (HQLA, collateral, capital requirement) and the size.
   source: ASSUMPTION
+  sources:
+    cash_reserves: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2521001 / 2521010; docs/CALIBRATION.md"
+    illiquid_assets: "Remainder of total assets; depends on the HQLA and collateral lines, which are ASSUMPTION"
+    insured_retail: "Retail total: EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of household deposits; insured share is ASSUMPTION"
+    uninsured_retail: "Retail total: EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of household deposits; insured share is ASSUMPTION"
+    corporate: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of deposits from non-financial corporations and general governments; docs/CALIBRATION.md"
+    financial: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of deposits from other financial corporations and credit institutions; docs/CALIBRATION.md"
+    wholesale_funding: "Total: EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of debt securities issued; maturity ladder is ASSUMPTION"
+    other_liabilities: "Remainder of total assets after deposits, wholesale funding and CET1; docs/CALIBRATION.md"
+    cet1: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520102 / 2521010; docs/CALIBRATION.md"
+    rwa: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520138 / 2521010; docs/CALIBRATION.md"
   assets:
-    cash_reserves: 4.0
+    cash_reserves: 4.77
     hqla_level1: 6.0
     hqla_level2: 2.0
     other_eligible_collateral: 6.0
-    illiquid_assets: 42.0
+    illiquid_assets: 41.23
   liabilities:
     deposits:
-      insured_retail: 30.0
-      uninsured_retail: 8.0
-      corporate: 7.0
-      financial: 1.0
+      insured_retail: 25.74
+      uninsured_retail: 6.86
+      corporate: 10.73
+      financial: 2.52
     wholesale_funding:
       maturing:
-        7: 0.5
-        15: 0.5
-        24: 1.0
-      beyond_horizon: 4.0
-    other_liabilities: 3.5
+        7: 0.31
+        15: 0.31
+        24: 0.61
+      beyond_horizon: 2.45
+    other_liabilities: 5.96
   capital:
-    cet1: 4.5
-    rwa: 28.0
+    cet1: 4.51
+    rwa: 23.73
     capital_requirement_ratio: 0.105
 
 digital:

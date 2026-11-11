@@ -129,8 +129,10 @@ lcr_outflow_rate_corporate:
   value: 0.40
   unit: share of stock over 30 days
   source: ASSUMPTION
+# 60%, not 100%: part of these deposits is operational and the real ratio nets inflows.
+# Chosen so that the calibrated universal archetype opens above 100% (docs/CALIBRATION.md).
 lcr_outflow_rate_financial:
-  value: 1.00
+  value: 0.60
   unit: share of stock over 30 days
   source: ASSUMPTION
 lcr_outflow_rate_wholesale:
