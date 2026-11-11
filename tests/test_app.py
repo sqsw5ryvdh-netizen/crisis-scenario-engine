@@ -90,6 +90,7 @@ def test_app_runs_and_shows_selectors_sliders_chart_and_table():
     assert not at.exception
     assert [box.label for box in at.selectbox] == ["Bank archetype", "Trigger scenario"]
     assert len(at.slider) == 6
+    assert [n.label for n in at.number_input] == ["Random seed"]
     assert [metric.label for metric in at.metric][0] == "Failure day"
     assert len(at.dataframe) == 1
     assert any(h.value == "Exercise script" for h in at.subheader)

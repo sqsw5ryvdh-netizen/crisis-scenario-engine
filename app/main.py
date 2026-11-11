@@ -8,11 +8,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st  # noqa: E402
 
-from app.charts import build_timeline  # noqa: E402
+from app.charts import build_failure_distribution, build_timeline  # noqa: E402
 from engine.config import load_config  # noqa: E402
 from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx  # noqa: E402
 from engine.injects import build_script  # noqa: E402
 from engine.model import simulate, uninsured_share, with_uninsured_share  # noqa: E402
+from engine.montecarlo import (  # noqa: E402
+    bands,
+    describe_failure_day,
+    failure_day_counts,
+    recentre,
+    run_monte_carlo,
+    summarise,
+)
 
 # Range of the uninsured-share slider (a display limit, not a model parameter).
 UNINSURED_SHARE_RANGE = (10, 95)
@@ -105,20 +113,33 @@ with st.sidebar:
             key=prefix + name,
             help=help_text,
         )
-        overrides[name] = current.model_copy(update={"value": shown / factor})
+        # The slider sets the central value; the uncertainty range moves with it.
+        overrides[name] = recentre(name, current, shown / factor)
+
+    st.header("Uncertainty")
+    n_runs = int(config.model.monte_carlo_runs.value)
+    seed = st.number_input(
+        "Random seed",
+        min_value=0,
+        value=int(config.model.monte_carlo_seed.value),
+        step=1,
+        help=f"The same seed always gives the same {n_runs} runs.",
+    )
 
 # The slider starts at the rounded share; only rebuild the bank when it was moved.
 if share_pct != round(100 * uninsured_share(bank)):
     bank = with_uninsured_share(bank, share_pct / 100)
 scenario = scenario.model_copy(
     update={
-        "severity": scenario.severity.model_copy(update={"value": severity}),
+        "severity": recentre("severity", scenario.severity, severity),
         "overrides": overrides,
     }
 )
 result = simulate(bank, config.model, scenario)
 table = result.table
 horizon = int(config.model.horizon_days.value)
+monte_carlo = run_monte_carlo(bank, config.model, scenario, n_runs, int(seed))
+uncertainty = summarise(monte_carlo)
 
 st.title("Crisis Scenario Engine")
 st.caption(f"{bank.name} · {scenario.name}. {scenario.description} Amounts in {bank.unit}.")
@@ -135,8 +156,32 @@ funding.metric(
     help="Liquidity needed to cover projected outflows after the failure day.",
 )
 
+if uncertainty.funding_need_low is None:
+    need_range = "no run fails"
+else:
+    need_range = (
+        f"{uncertainty.funding_need_low:.2f} to {uncertainty.funding_need_high:.2f} {bank.unit}"
+    )
+st.caption(
+    f"Across {n_runs} runs with uncertain parameters: the bank fails in "
+    f"{uncertainty.fail_share:.0%} of runs; failure {describe_failure_day(uncertainty, horizon)}; "
+    f"funding need {need_range}. Ranges are 5th to 95th percentiles. The headline figures "
+    "above are the central run, which is not always the median."
+)
+
 st.subheader("Timeline")
-st.plotly_chart(build_timeline(result, horizon, bank.unit), width="stretch")
+st.plotly_chart(
+    build_timeline(result, horizon, bank.unit, bands(monte_carlo)), width="stretch"
+)
+st.caption(
+    f"Line: central run. Shaded band: 5th to 95th percentile of {n_runs} runs; "
+    "a run that fails keeps its last values."
+)
+
+st.subheader("Failure-day distribution")
+st.plotly_chart(
+    build_failure_distribution(failure_day_counts(monte_carlo), horizon), width="stretch"
+)
 
 st.subheader("How each day's outflow was funded")
 waterfall = table[list(WATERFALL_COLUMNS)].rename(columns=WATERFALL_COLUMNS)

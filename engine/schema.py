@@ -193,6 +193,10 @@ class ModelParams(StrictModel):
     early_intervention_cet1_margin: Parameter
     resolution_funding_days: Parameter
 
+    # Monte Carlo defaults.
+    monte_carlo_runs: Parameter
+    monte_carlo_seed: Parameter
+
     @model_validator(mode="after")
     def _check_values(self) -> "ModelParams":
         for name in type(self).model_fields:
@@ -210,6 +214,11 @@ class ModelParams(StrictModel):
             raise ValueError("horizon_days must be a positive whole number")
         if self.panic_max_multiplier.value < 1:
             raise ValueError("panic_max_multiplier must be >= 1")
+        for name in ("monte_carlo_runs", "monte_carlo_seed"):
+            if getattr(self, name).value != int(getattr(self, name).value):
+                raise ValueError(f"{name} must be a whole number")
+        if self.monte_carlo_runs.value < 1:
+            raise ValueError("monte_carlo_runs must be >= 1")
         if self.wholesale_rollover_cap.value > 1:
             raise ValueError("wholesale_rollover_cap must be <= 1")
         start = self.payment_outage_start_day.value

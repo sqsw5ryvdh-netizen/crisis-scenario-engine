@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from engine.model import SimulationResult
 
 LINE_COLOR = "#2a78d6"
+BAND_COLOR = "rgba(42, 120, 214, 0.18)"
 NEWS_COLOR = "#898781"
 # Status colours, always shown together with a text label.
 TRIGGERS = {
@@ -19,26 +23,52 @@ TRIGGERS = {
 _LABEL_Y = {"recovery": 1.05, "early_intervention": 1.09, "failure": 1.13}
 
 
-def build_timeline(result: SimulationResult, horizon: int, unit: str) -> go.Figure:
-    """Liquidity buffer, deposits and CET1 ratio by day, with trigger and news markers."""
+def build_timeline(
+    result: SimulationResult,
+    horizon: int,
+    unit: str,
+    bands: Optional[dict[str, pd.DataFrame]] = None,
+) -> go.Figure:
+    """Liquidity buffer, deposits and CET1 ratio by day, with trigger and news markers.
+
+    `bands` (optional, from engine.montecarlo.bands) adds a shaded uncertainty band per panel.
+    """
     table = result.table
     panels = [
-        (f"Liquidity buffer ({unit})", table["liquidity_buffer"], "%{y:.2f}"),
-        (f"Deposits ({unit})", table["deposits_total"], "%{y:.2f}"),
-        ("CET1 ratio (%)", table["cet1_ratio"] * 100.0, "%{y:.1f}%"),
+        (f"Liquidity buffer ({unit})", "liquidity_buffer", 1.0, "%{y:.2f}"),
+        (f"Deposits ({unit})", "deposits_total", 1.0, "%{y:.2f}"),
+        ("CET1 ratio (%)", "cet1_ratio", 100.0, "%{y:.1f}%"),
     ]
     fig = make_subplots(
         rows=len(panels),
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.07,
-        subplot_titles=[title for title, _, _ in panels],
+        subplot_titles=[title for title, _, _, _ in panels],
     )
-    for row, (title, values, value_format) in enumerate(panels, start=1):
+    for row, (title, column, factor, value_format) in enumerate(panels, start=1):
+        if bands is not None:
+            band = bands[column]
+            # Upper edge first, then the lower edge filled up to it.
+            for edge, fill in (("high", None), ("low", "tonexty")):
+                fig.add_trace(
+                    go.Scatter(
+                        x=band["day"],
+                        y=band[edge] * factor,
+                        mode="lines",
+                        name=f"{title} band {edge}",
+                        line=dict(width=0),
+                        fill=fill,
+                        fillcolor=BAND_COLOR,
+                        hoverinfo="skip",
+                    ),
+                    row=row,
+                    col=1,
+                )
         fig.add_trace(
             go.Scatter(
                 x=table["day"],
-                y=values,
+                y=table[column] * factor,
                 mode="lines",
                 name=title,
                 line=dict(color=LINE_COLOR, width=2),
@@ -92,4 +122,41 @@ def build_timeline(result: SimulationResult, horizon: int, unit: str) -> go.Figu
         margin=dict(l=10, r=10, t=120, b=10),
         hovermode="x unified",
     )
+    return fig
+
+
+def build_failure_distribution(counts: pd.DataFrame, horizon: int) -> go.Figure:
+    """Number of Monte Carlo runs failing on each day, plus a bar for runs that do not fail.
+
+    `counts` comes from engine.montecarlo.failure_day_counts.
+    """
+    no_failure_x = horizon + 3
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=counts["day"],
+            y=counts["runs"],
+            name="Runs failing on this day",
+            marker=dict(color=LINE_COLOR),
+            hovertemplate="Day %{x}: %{y} runs<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=[no_failure_x],
+            y=[counts.attrs["no_failure"]],
+            name="No failure",
+            marker=dict(color=NEWS_COLOR),
+            hovertemplate=f"No failure within {horizon} days: " + "%{y} runs<extra></extra>",
+        )
+    )
+    ticks = list(range(0, horizon + 1, 5))
+    fig.update_xaxes(
+        title_text="Failure day",
+        tickvals=ticks + [no_failure_x],
+        ticktext=[str(t) for t in ticks] + ["No failure"],
+        range=[-0.75, no_failure_x + 0.75],
+    )
+    fig.update_yaxes(title_text="Number of runs", rangemode="tozero")
+    fig.update_layout(height=320, showlegend=False, bargap=0.25, margin=dict(l=10, r=10, t=20, b=10))
     return fig

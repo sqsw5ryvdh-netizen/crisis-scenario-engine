@@ -11,6 +11,7 @@ from engine.config import DEFAULT_CONFIG_DIR, load_config
 from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx
 from engine.injects import build_script
 from engine.model import SimulationResult, simulate
+from engine.montecarlo import describe_failure_day, run_monte_carlo, summarise
 
 # column in the result table -> (header, format)
 _COLUMNS = {
@@ -60,6 +61,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--export-dir", type=Path, help="write the exercise script (.docx) and data (.csv) here"
     )
+    parser.add_argument("--runs", type=int, help="also run a Monte Carlo with this many runs")
+    parser.add_argument("--seed", type=int, help="Monte Carlo seed (default: config value)")
     args = parser.parse_args(argv)
 
     config = load_config(args.config_dir)
@@ -95,6 +98,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"= projected outflows {need.projected_outflows:.2f} "
             f"- remaining liquidity {need.remaining_liquidity:.2f}"
         )
+
+    if args.runs is not None:
+        seed = int(config.model.monte_carlo_seed.value) if args.seed is None else args.seed
+        summary = summarise(run_monte_carlo(bank, config.model, scenario, args.runs, seed))
+        print()
+        print(f"Monte Carlo: {args.runs} runs, seed {seed} (ranges are 5th to 95th percentiles)")
+        print(f"  Fails in {summary.fail_share:.0%} of runs")
+        print(f"  Failure {describe_failure_day(summary, horizon)}")
+        if summary.funding_need_low is not None:
+            print(
+                f"  Funding need {summary.funding_need_low:.2f} to "
+                f"{summary.funding_need_high:.2f} {bank.unit}, "
+                f"median {summary.funding_need_median:.2f}"
+            )
 
     if args.export_dir is not None:
         script = build_script(bank, config.model, scenario, result, config.injects)

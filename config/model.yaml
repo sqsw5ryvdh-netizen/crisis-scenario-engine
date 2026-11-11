@@ -1,5 +1,5 @@
 # Model parameters. Each one has value, unit and source.
-# low/high (optional) give the plausible range: used by the app sliders and by Monte Carlo (M4).
+# low/high (optional) give the plausible range: used by the app sliders and sampled by Monte Carlo.
 # source: ASSUMPTION means there is no verifiable source yet (calibration is M5).
 
 horizon_days:
@@ -10,18 +10,26 @@ horizon_days:
 # --- Run-off: daily base rate per deposit category (before severity and panic) ---
 base_runoff_insured_retail:
   value: 0.003
+  low: 0.001
+  high: 0.008
   unit: share of stock per day
   source: ASSUMPTION
 base_runoff_uninsured_retail:
   value: 0.015
+  low: 0.008
+  high: 0.03
   unit: share of stock per day
   source: ASSUMPTION
 base_runoff_corporate:
   value: 0.020
+  low: 0.01
+  high: 0.04
   unit: share of stock per day
   source: ASSUMPTION
 base_runoff_financial:
   value: 0.040
+  low: 0.02
+  high: 0.08
   unit: share of stock per day
   source: ASSUMPTION
 
@@ -29,21 +37,27 @@ base_runoff_financial:
 # x = cumulative deposit loss share + news shocks to date.
 panic_max_multiplier:
   value: 6.0
-  low: 2.0
+  low: 3.0
   high: 10.0
   unit: multiplier
   source: ASSUMPTION
 panic_steepness:
   value: 25.0
+  low: 15.0
+  high: 40.0
   unit: per unit of x
   source: ASSUMPTION
 panic_midpoint:
   value: 0.12
+  low: 0.06
+  high: 0.2
   unit: share of initial deposits
   source: ASSUMPTION
 # Rollover fraction of maturing wholesale funding = 1 - sensitivity * normalised panic.
 wholesale_rollover_sensitivity:
   value: 1.5
+  low: 1.0
+  high: 3.0
   unit: multiplier
   source: ASSUMPTION
 
@@ -66,16 +80,20 @@ payment_outage_end_day:
 # --- Funding waterfall ---
 hqla_level1_haircut:
   value: 0.01
+  low: 0.0
+  high: 0.03
   unit: share of market value
   source: ASSUMPTION
 hqla_level2_haircut:
   value: 0.10
+  low: 0.05
+  high: 0.2
   unit: share of market value
   source: ASSUMPTION
 central_bank_haircut:
   value: 0.25
-  low: 0.05
-  high: 0.60
+  low: 0.1
+  high: 0.45
   unit: share of collateral value
   source: ASSUMPTION
 central_bank_mobilisation_lag_days:
@@ -86,13 +104,15 @@ central_bank_mobilisation_lag_days:
   source: ASSUMPTION
 fire_sale_discount:
   value: 0.20
-  low: 0.05
-  high: 0.50
+  low: 0.1
+  high: 0.4
   unit: share of book value
   source: ASSUMPTION
 # Sale capacity added each day from day 1; unused capacity carries over.
 fire_sale_daily_cap_share:
   value: 0.01
+  low: 0.005
+  high: 0.02
   unit: share of day-0 illiquid assets per day
   source: ASSUMPTION
 
@@ -138,4 +158,14 @@ early_intervention_cet1_margin:
 resolution_funding_days:
   value: 5
   unit: days
+  source: ASSUMPTION
+
+# --- Monte Carlo ---
+monte_carlo_runs:
+  value: 500
+  unit: runs
+  source: docs/SPEC.md section 3.6
+monte_carlo_seed:
+  value: 2028
+  unit: random seed
   source: ASSUMPTION
