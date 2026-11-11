@@ -1,8 +1,9 @@
 # CALIBRATION
 
 Status on 2026-11-11: part **a** (archetype proportions) is done for two of the four archetypes.
-Part **b** (comparison with real cases) is not started. Everything not listed here as sourced is
-an ASSUMPTION; the app's Assumptions page shows the status of every value.
+Part **b** (comparison with real cases) is done as a comparison only: no parameter was tuned.
+Everything not listed here as sourced is an ASSUMPTION; the app's Assumptions page shows the
+status of every value.
 
 ## 1. Data files
 
@@ -207,5 +208,104 @@ The digital and specialised archetypes are unchanged.
 
 ## 7. Run-off speed against real cases (part b)
 
-Not started. No real-case figure is used anywhere in the model. Every run-off, panic, haircut,
-trigger and contagion parameter is an ASSUMPTION.
+Purpose: check whether the speed of deposit loss in the model is of the same order as in
+well-documented runs. This is a comparison only. No real-case figure is used as a model input,
+and every run-off, panic, haircut, trigger and contagion parameter remains an ASSUMPTION.
+
+### 7.1 Figures from primary sources
+
+Only figures read in the document itself are listed, with the place where they appear. All
+documents were read on 2026-11-11.
+
+| # | Case | Figure stated in the source | Source and place |
+|---|---|---|---|
+| 1 | Silicon Valley Bank, 9 March 2023 | Deposit withdrawals of about USD 42 bn in one day, nearly 25% of about USD 166 bn of total deposits | [S2], pp. 9 and 15 |
+| 2 | Silicon Valley Bank, 10 March 2023 | Withdrawal requests pending for the next day: USD 100 bn | [S2], p. 15 |
+| 3 | Silicon Valley Bank, 9-10 March 2023 | Over USD 40 bn lost on 9 March and over USD 100 bn more expected on 10 March; together roughly 85% of the deposit base | [S1], Executive Summary |
+| 4 | First Republic Bank, 10 March 2023 | Deposit outflows of about USD 25 bn by the end of the day, about 17% of total deposits | [S3] |
+| 5 | First Republic Bank, 13 March 2023 | About USD 40 bn of deposit outflows on that day | [S3] |
+| 6 | Credit Suisse, end of Q3 2022 | Client deposits of about CHF 370 bn | [S4], p. 34 |
+| 7 | Credit Suisse, Q4 2022 | CHF 138 bn of deposits withdrawn in the quarter | [S4], pp. 34 and 63 |
+| 8 | Credit Suisse, October 2022 | Outflows of around CHF 92 bn in the month | [S4], p. 63 |
+| 9 | Credit Suisse, 13-17 March 2023 | Daily outflows of CHF 1.6 bn, 2.7 bn, 13.2 bn, 17.1 bn and 10.1 bn | [S4], pp. 36-37 |
+
+Sources:
+- [S1] Board of Governors of the Federal Reserve System, "Review of the Federal Reserve's
+  Supervision and Regulation of Silicon Valley Bank", April 2023, Executive Summary.
+  <https://www.federalreserve.gov/publications/2023-April-SVB-Executive-Summary.htm>
+- [S2] Office of Inspector General, Board of Governors of the Federal Reserve System, "Material
+  Loss Review of Silicon Valley Bank", Evaluation Report 2023-SR-B-013, 25 September 2023.
+  <https://oig.federalreserve.gov/reports/board-material-loss-review-silicon-valley-bank-sep2023.pdf>
+- [S3] Federal Deposit Insurance Corporation, statement of the Chairman, "Oversight of Financial
+  Regulators: Financial Stability, Supervision, and Consumer Protection in the Wake of Recent Bank
+  Failures", May 2023. <https://www.fdic.gov/news/speeches/2023/spmay1723.html>
+- [S4] FINMA, "FINMA Report - Lessons Learned from the CS Crisis", Bern, 19 December 2023.
+  <https://www.finma.ch/en/~/media/finma/dokumente/dokumentencenter/myfinma/finma-publikationen/cs-bericht/20231219-finma-bericht-cs.pdf>
+
+Page numbers are the page of the PDF file. For [S4] the printed page number is the same.
+
+### 7.2 Cases examined and left out
+
+- **Northern Rock (September 2007).** The Treasury Committee report "The run on the Rock"
+  (HC 56-I, session 2007-08, <https://publications.parliament.uk/pa/cm200708/cmselect/cmtreasy/56/5602.htm>)
+  gives retail deposits and funds of GBP 22.6 bn at the end of 2006 (paragraph 17), but no amount
+  withdrawn during the run of 14-17 September 2007 was found in it. No other primary document
+  was read. Left out.
+- **Banco Popular Espanol (June 2017).** The Single Resolution Board's case page
+  (<https://www.srb.europa.eu/en/content/banco-popular>) and the published resolution decision
+  give no deposit outflow figure; the decision is a scanned image without readable text. The
+  only figures seen came from press reports quoted in a European Parliament briefing. Left out.
+
+### 7.3 Derived shares (own arithmetic)
+
+These are computed here from the rows of 7.1 and are not stated in the sources.
+
+| Case | Calculation | Result |
+|---|---|---|
+| Credit Suisse, October 2022 | 92 / 370 (rows 8, 6) | about 25% of deposits in one month |
+| Credit Suisse, Q4 2022 | 138 / 370 (rows 7, 6) | about 37% of deposits in one quarter |
+| First Republic, 10 and 13 March 2023 | deposit base implied by row 4: 25 / 0.17 = about 147; then (25 + 40) / 147 (rows 4, 5) | about 44% of deposits over two business days |
+
+For Credit Suisse in March 2023 (row 9) the source gives no deposit base for that date, so no
+share is computed.
+
+### 7.4 Model figures
+
+Cumulative deposit loss in the central (deterministic) run, as a share of opening deposits,
+from the `dep_loss%` column of `python -m engine.run --bank <bank> --scenario <scenario>` with
+the configuration of the M5b commit. A run stops at the failure day.
+
+| Scenario | Bank | After day 1 | After day 2 | After day 5 | At the end (day) | Largest one-day loss |
+|---|---|---|---|---|---|---|
+| Fast run | Universal | 15.2% | 38.9% | - | 56.7% (4) | 23.7% |
+| Fast run | Retail | 9.4% | 24.8% | - | 40.0% (4) | 15.4% |
+| Fast run | Digital | 7.7% | 20.6% | 43.8% | 61.7% (10) | 12.9% |
+| Fast run | Specialised | 16.4% | 43.7% | - | 62.0% (4) | 27.3% |
+| Slow burn | Universal | 2.2% | 4.5% | 16.0% | 60.9% (16) | 6.7% |
+| Slow burn | Retail | 1.3% | 2.7% | 8.1% | 51.0% (21) | 4.0% |
+| Slow burn | Digital | 1.1% | 2.2% | 6.4% | 57.1% (30) | 3.2% |
+| Slow burn | Specialised | 2.3% | 4.9% | 18.8% | 67.1% (14) | 8.1% |
+
+### 7.5 Reading
+
+- **Fast run against the 2023 US runs.** The specialised and universal archetypes lose 15-16% of
+  deposits on day 1 and 39-44% by day 2. First Republic lost about 17% in one day and about 44%
+  over two business days; Silicon Valley Bank lost about 25% in one day and faced requests for
+  most of the rest the next day. The model's fast run is of the same order as First Republic and
+  slower than Silicon Valley Bank.
+- **Digital archetype.** At 8% on day 1 and 21% by day 2 it runs slower than either US case. Its
+  balance sheet is still an ASSUMPTION with a large share of insured retail deposits.
+- **Slow burn against Credit Suisse.** The model loses 51-67% of deposits within 14 to 30 days.
+  Credit Suisse lost about 25% in its worst month and about 37% in a quarter. The slow-burn
+  scenario is therefore much faster than this case.
+
+### 7.6 Limits of the comparison
+
+- Three cases, two of them in the same week and country. The US banks had very high shares of
+  uninsured deposits; the model's archetypes are European and partly assumed.
+- The real figures mix measures: withdrawals, withdrawal requests and net outflows. Silicon
+  Valley Bank's second-day figure is requests that were not all paid out.
+- The model has daily steps and stops at the failure day, whereas the real banks kept losing
+  deposits until an authority intervened.
+- Nothing was tuned. Bringing the slow-burn scenario closer to the Credit Suisse pace would be a
+  model change and has not been decided.
