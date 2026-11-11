@@ -34,7 +34,7 @@ base_runoff_financial:
   source: ASSUMPTION
 
 # --- Panic multiplier = 1 + (max - 1) * logistic(steepness * (x - midpoint)) ---
-# x = cumulative deposit loss share + news shocks to date.
+# x is a fading memory of deposit losses and news shocks (see panic_decay).
 panic_max_multiplier:
   value: 6.0
   low: 3.0
@@ -53,6 +53,13 @@ panic_midpoint:
   high: 0.2
   unit: share of initial deposits
   source: ASSUMPTION
+# Share of the panic input that fades each day (0 = panic never falls).
+panic_decay:
+  value: 0.15
+  unit: share per day
+  source: ASSUMPTION
+  low: 0.05
+  high: 0.30
 # Rollover fraction of maturing wholesale funding = 1 - sensitivity * normalised panic.
 wholesale_rollover_sensitivity:
   value: 1.5
@@ -116,6 +123,27 @@ fire_sale_daily_cap_share:
   unit: share of day-0 illiquid assets per day
   source: ASSUMPTION
 
+# --- Emergency liquidity assistance (ELA) ---
+# Usable from this day on (0 = not granted) and only while CET1 is at or above the requirement.
+# Granting becomes a decision in SPEC_V2 phase B; until then it is off.
+ela_granted_from_day:
+  value: 0
+  unit: day (0 = not granted)
+  source: ASSUMPTION
+ela_haircut:
+  value: 0.50
+  unit: share
+  source: ASSUMPTION
+  low: 0.35
+  high: 0.65
+# Share of the loan book accepted as ELA collateral.
+ela_eligible_loan_share:
+  value: 0.30
+  unit: share of illiquid assets
+  source: ASSUMPTION
+  low: 0.15
+  high: 0.50
+
 # --- LCR proxy: 30-day outflow rates ---
 lcr_outflow_rate_insured_retail:
   value: 0.05
@@ -156,6 +184,12 @@ early_intervention_lcr_threshold:
 early_intervention_cet1_margin:
   value: 0.015
   unit: ratio points above the capital requirement
+  source: ASSUMPTION
+# "Likely to fail" flag: liquidity buffer covers fewer than this many days of the current
+# outflow, or the CET1 ratio is projected below the requirement over the same number of days.
+likely_to_fail_survival_days:
+  value: 3
+  unit: days
   source: ASSUMPTION
 resolution_funding_days:
   value: 5

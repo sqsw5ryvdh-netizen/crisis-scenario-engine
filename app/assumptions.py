@@ -101,6 +101,17 @@ def bank_table(config: Config) -> pd.DataFrame:
                     "Source": source,
                 }
             )
+        factor = bank.runoff_speed_factor
+        rows.append(
+            {
+                "Bank": bank.name,
+                "Status": FLAG if factor.is_assumption else SOURCED,
+                "Item": "Run-off speed factor",
+                "Value": factor.value,
+                "Unit": factor.unit,
+                "Source": factor.source,
+            }
+        )
     return pd.DataFrame(rows)
 
 

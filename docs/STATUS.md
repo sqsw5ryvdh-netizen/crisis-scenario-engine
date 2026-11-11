@@ -1,40 +1,40 @@
 # STATUS
 
-Last completed milestone: **M6 - Demo polish** (2026-11-11). All milestones of docs/SPEC.md are done.
+Last completed: **SPEC_V2 phase A - Model realism** (2026-11-11). M0-M6 of docs/SPEC.md are done. Next: phase B (not started).
 
-## What was built
-- M0-M5: validated config, deterministic engine, CLI, exercise script export, Monte Carlo, assumptions page, one-way contagion, calibration of two archetypes (docs/CALIBRATION.md).
-- `app/main.py`: now a router with two pages, "Simulation" and "Assumptions" (`app/views/`).
-- `app/views/simulation.py`: results in five tabs (Timeline, Funding, Uncertainty, Exercise script, Contagion); only the open tab is computed. Opens on the digital bank and the fast run.
-- Day-by-day view: a day slider and a Play button reveal the timeline up to a day, with that day's figures and the events so far. The uncertainty band appears on the last day.
-- Reference run: the failure day shows the change against the bank and scenario as first shown, e.g. "4 days earlier than with the starting values (day 10)".
-- `app/demo.py`: the guided demo, six steps following spec section 2, with Back, Next, Run and Exit. Each step opens the right tab and outlines the control to use. On by default.
-- `start.sh` (one-command start) and `README.md`.
-- `tests/`: 393 tests.
+## What was built in phase A
+- **Panic can fall.** The panic input is a fading memory (`panic_decay`, 15% per day); news shocks can be negative (reassuring events). No preset uses a negative shock yet.
+- **Two failure concepts.** A forward-looking "likely to fail" flag (liquidity covers fewer than 3 days of the current outflow, or CET1 projected below requirement within 3 days) and the payments default, which ends the run. A capital breach alone no longer ends it.
+- **Capital exhausted.** Sales at a loss stop when CET1 would go below zero; the run ends that day.
+- **ELA.** A second central bank facility: loan book as extra collateral, higher haircut, only while CET1 is at or above the requirement. Off by default (`ela_granted_from_day: 0`) until phase B makes it a decision.
+- **Digital archetype rebuilt** with thin liquid assets and a per-archetype run-off speed factor of 1.5 (1.0 for the others).
+- **Slow-burn severity** 1.0 -> 0.3, recorded in docs/CALIBRATION.md section 8 as an order-of-magnitude check.
+- App: fourth stage marker, "Likely-to-fail flag" metric, ELA column, "payments default" wording. One new script template. `tests/`: 494 tests.
 
 ## How to run
-- App: `./start.sh` (creates `.venv` and installs dependencies on first use; macOS and Linux)
-- Tests: `.venv/bin/pytest -q`
-- CLI: `.venv/bin/python -m engine.run --bank digital --scenario fast_run`
-- Calibration (needs the raw file, see docs/CALIBRATION.md): `.venv/bin/python scripts/calibrate_te2025.py`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | CLI: `.venv/bin/python -m engine.run --bank digital --scenario fast_run`
 
-## Acceptance output (M6)
-- `pytest -q` -> `393 passed`.
-- Full demo story run in the browser without touching code: digital bank, fast run, Run, playback from day 0 to failure on day 10 (recovery day 1, early intervention day 4), uninsured deposits 38% -> 60% moves failure to day 6, script tab with the three downloads.
-- The Word file served by the download button opens: 142 paragraphs, 9 tables, same figures as the screen.
-- `./start.sh` serves the app (health check `ok`); in a clean copy it creates the environment and installs the dependencies.
+## Acceptance output (phase A)
+Day of recovery / early intervention / likely-to-fail flag / payments default, and deposit loss at the end:
 
-## Deviations from spec and choices (approved 2026-11-11)
-- "Press run" exists only in the guided demo; outside it the app recalculates on every change.
-- Playback speed (0.5 s per day) and the opening selection are display settings in `app/demo.py`, not model parameters.
-- Minimum Streamlit version raised to 1.67 (tabs that can be opened from code). No new dependency.
-- Windows has no one-command start.
-- Earlier choices (60% LCR outflow rate for financial deposits, real cases compared but not used to tune, Transparency Exercise only) are unchanged.
+| Bank | Fast run | Slow burn | Cyber outage | Geopolitical |
+|---|---|---|---|---|
+| Universal | 1/1/1/4, 56.7% | 7/30/-/-, 25.3% | 1/4/4/7, 58.5% | 2/3/3/9, 57.3% |
+| Retail | 1/1/1/4, 40.0% | 12/-/-/-, 13.9% | 2/4/4/7, 41.9% | 2/5/6/10, 41.7% |
+| Digital | 1/1/1/2, 28.8% | 9/26/-/-, 19.3% | 1/4/4/4, 35.6% | 2/3/3/6, 33.6% |
+| Specialised | 1/1/1/4, 62.0% | 7/-/-/-, 31.0% | 1/4/4/6, 63.1% | 2/3/3/8, 61.5% |
+
+- 4 pairs survive 30 days with neither flag nor default (the slow burn); the digital bank defaults first in the fast run.
+- `pytest -q` -> `494 passed`, including the four domain checks of CLAUDE.md. App checked in the browser on two pairs.
+- ELA demonstration (universal, fast run, ELA from day 1): default moves from day 4 to day 9, 94.6 bn drawn.
+
+## Deviations and choices (approved 2026-11-11)
+- "Survive" means neither flag nor default. "Solvent" for ELA means CET1 ratio at or above the requirement.
+- In the code the payments default keeps the name `failure` / `failed`; only the labels changed.
+- The likely-to-fail flag is not required to come earlier with higher severity; only the default day is. The exercise script got one new template only; phase D rewrites it.
 
 ## Open questions
-- The slow-burn scenario is much faster than the Credit Suisse case; left as is by decision.
-- The digital bank is the most resilient archetype (fails on day 10 in the fast run); its numbers are placeholders.
-- All behavioural parameters, HQLA, the insured share, the maturity ladder and capital requirements are still ASSUMPTION.
-- The wording of the exercise script is a draft and has not been reviewed by a practitioner.
-- The preview pane used for the run-through does not save downloads to disk; the file was checked by fetching it from the app. Saving from a normal browser was not tested.
-- "Higher severity never fails later" is verified on a grid, not proven.
+- Fast runs raise recovery, early intervention and the flag all on day 1 for three banks.
+- A 500-run pass on a 30-day run takes about 1.0 s (0.45 s before), slightly over the 1 s slider target of M2.
+- The demo opens on a two-day crisis; raising uninsured deposits no longer moves the default day. With more uninsured deposits a bank can default a day later (earlier recovery trigger mobilises central bank funding earlier). This predates phase A.
+- Every parameter added in phase A is ASSUMPTION. The screenshots in docs/screenshots/ predate phase A; to be redone at the end of V2.

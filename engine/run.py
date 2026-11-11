@@ -88,11 +88,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not result.events:
         print("  none")
     print()
+    if result.likely_to_fail_day is not None:
+        print(f"Likely-to-fail flag raised on day {result.likely_to_fail_day}.")
     if result.failure_day is None:
-        print(f"Outcome: no failure within {horizon} days.")
+        print(f"Outcome: no payments default within {horizon} days.")
     else:
         need = result.funding_need
-        print(f"Outcome: failing or likely to fail on day {result.failure_day}.")
+        print(f"Outcome: payments default on day {result.failure_day}.")
         print(
             f"Funding need in resolution ({need.days} days): {need.need:.2f} {bank.unit} "
             f"= projected outflows {need.projected_outflows:.2f} "

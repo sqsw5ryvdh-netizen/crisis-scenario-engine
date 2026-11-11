@@ -193,7 +193,7 @@ of assets against 4.0%). With the LCR proxy's 100% outflow rate on financial dep
 calibrated universal archetype opened at an LCR proxy of 95%, i.e. already in the recovery stage.
 On 2026-11-11 `lcr_outflow_rate_financial` was lowered from 1.00 to 0.60. The value 0.60 is an
 ASSUMPTION, not a sourced figure. Opening LCR proxy afterwards: universal 118%, retail 139%,
-digital 215%, specialised 152%.
+digital 215% (127% since the rebuild in section 8), specialised 152%.
 
 Failure day of the central run, before and after calibration:
 
@@ -204,7 +204,7 @@ Failure day of the central run, before and after calibration:
 | Cyber outage | 12 | 7 | 8 | 7 |
 | Geopolitical | 12 | 8 | 11 | 9 |
 
-The digital and specialised archetypes are unchanged.
+The digital and specialised archetypes were unchanged by this calibration.
 
 ## 7. Run-off speed against real cases (part b)
 
@@ -273,18 +273,18 @@ share is computed.
 
 Cumulative deposit loss in the central (deterministic) run, as a share of opening deposits,
 from the `dep_loss%` column of `python -m engine.run --bank <bank> --scenario <scenario>` with
-the configuration of the M5b commit. A run stops at the failure day.
+the configuration of the phase A commit (SPEC_V2). A run stops at the payments default day.
 
 | Scenario | Bank | After day 1 | After day 2 | After day 5 | At the end (day) | Largest one-day loss |
 |---|---|---|---|---|---|---|
-| Fast run | Universal | 15.2% | 38.9% | - | 56.7% (4) | 23.7% |
-| Fast run | Retail | 9.4% | 24.8% | - | 40.0% (4) | 15.4% |
-| Fast run | Digital | 7.7% | 20.6% | 43.8% | 61.7% (10) | 12.9% |
-| Fast run | Specialised | 16.4% | 43.7% | - | 62.0% (4) | 27.3% |
-| Slow burn | Universal | 2.2% | 4.5% | 16.0% | 60.9% (16) | 6.7% |
-| Slow burn | Retail | 1.3% | 2.7% | 8.1% | 51.0% (21) | 4.0% |
-| Slow burn | Digital | 1.1% | 2.2% | 6.4% | 57.1% (30) | 3.2% |
-| Slow burn | Specialised | 2.3% | 4.9% | 18.8% | 67.1% (14) | 8.1% |
+| Fast run | Universal | 15.2% | 38.8% | - | 56.7% (4) | 23.6% |
+| Fast run | Retail | 9.4% | 24.6% | - | 40.0% (4) | 15.2% |
+| Fast run | Digital | 12.5% | 28.8% | - | 28.8% (2) | 16.3% |
+| Fast run | Specialised | 16.4% | 43.7% | - | 62.0% (4) | 27.2% |
+| Slow burn | Universal | 0.7% | 1.3% | 3.5% | 25.3% (30) | 1.1% |
+| Slow burn | Retail | 0.4% | 0.8% | 2.1% | 13.9% (30) | 0.6% |
+| Slow burn | Digital | 0.5% | 1.1% | 2.8% | 19.3% (30) | 0.8% |
+| Slow burn | Specialised | 0.7% | 1.4% | 3.8% | 31.0% (30) | 1.4% |
 
 ### 7.5 Reading
 
@@ -293,11 +293,12 @@ the configuration of the M5b commit. A run stops at the failure day.
   over two business days; Silicon Valley Bank lost about 25% in one day and faced requests for
   most of the rest the next day. The model's fast run is of the same order as First Republic and
   slower than Silicon Valley Bank.
-- **Digital archetype.** At 8% on day 1 and 21% by day 2 it runs slower than either US case. Its
-  balance sheet is still an ASSUMPTION with a large share of insured retail deposits.
-- **Slow burn against Credit Suisse.** The model loses 51-67% of deposits within 14 to 30 days.
-  Credit Suisse lost about 25% in its worst month and about 37% in a quarter. The slow-burn
-  scenario is therefore much faster than this case.
+- **Digital archetype.** At 13% on day 1 and 29% by day 2 it still loses deposits more slowly
+  than either US case, but it has so few liquid assets that it defaults on day 2. Its balance
+  sheet and its speed factor are ASSUMPTION (section 8).
+- **Slow burn against Credit Suisse.** The universal archetype now loses 25% of deposits in 30
+  days, against about 25% for Credit Suisse in its worst month. This match was obtained by
+  setting the severity (section 8): it is an order-of-magnitude check, not an estimate.
 
 ### 7.6 Limits of the comparison
 
@@ -305,7 +306,28 @@ the configuration of the M5b commit. A run stops at the failure day.
   uninsured deposits; the model's archetypes are European and partly assumed.
 - The real figures mix measures: withdrawals, withdrawal requests and net outflows. Silicon
   Valley Bank's second-day figure is requests that were not all paid out.
-- The model has daily steps and stops at the failure day, whereas the real banks kept losing
+- The model has daily steps and stops at the payments default day, whereas the real banks kept losing
   deposits until an authority intervened.
-- Nothing was tuned. Bringing the slow-burn scenario closer to the Credit Suisse pace would be a
-  model change and has not been decided.
+- The fast run was not tuned. The slow-burn severity was set on one figure of one case
+  (section 8), which is why it must not be read as a calibration.
+
+## 8. Changes in SPEC_V2 phase A
+
+Three inputs changed after the comparison above was first written. None of them is an estimate.
+
+- **Slow-burn severity: 1.0 -> 0.3** (range 0.2 to 0.5), in `config/scenarios.yaml`. It was set
+  by trial so that the universal archetype loses 25.3% of its deposits over the 30-day horizon.
+  The reference is row 8 over row 6 of section 7.1: about CHF 92 bn out of about CHF 370 bn, or
+  about 25% in one month, for Credit Suisse in October 2022 ([S4], pp. 34 and 63). This is an
+  **order-of-magnitude check, not an estimate**: one case, one month, a different bank, and a
+  model whose other run-off parameters are all assumptions. The parameter stays `ASSUMPTION`.
+  With this severity no archetype reaches a payments default in the slow burn within 30 days.
+- **Digital archetype rebuilt**, in `config/banks.yaml`: cash and liquid securities cut from
+  7.0 to 4.0, other eligible collateral from 2.0 to 1.0, uninsured retail deposits raised from
+  3.5 to 5.0, and a run-off speed factor of 1.5 (range 1.0 to 2.5) that multiplies every run-off
+  rate of this archetype. All of it is `ASSUMPTION`: no data identifies digital banks
+  (section 5). Its opening LCR proxy is now 127%.
+- **Panic decay: 15% per day** (range 5% to 30%), in `config/model.yaml`, `ASSUMPTION`. With a
+  decay of zero the model behaves as before.
+
+Outcome of the 16 bank and scenario pairs after these changes: `docs/STATUS.md`.

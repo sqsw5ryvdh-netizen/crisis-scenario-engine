@@ -2,6 +2,7 @@
 # are calibrated on EBA data where available (docs/CALIBRATION.md); the rest is ASSUMPTION.
 # Equity is represented by CET1: assets = liabilities + cet1.
 # wholesale_funding.maturing: amount falling due on each simulated day (key = day).
+# runoff_speed_factor: multiplies every deposit run-off rate of the archetype (1 = global rates).
 
 universal:
   name: Large universal bank
@@ -46,6 +47,10 @@ universal:
     cet1: 47.6
     rwa: 303.3
     capital_requirement_ratio: 0.11
+  runoff_speed_factor:
+    value: 1.0
+    unit: multiplier of run-off rates
+    source: ASSUMPTION
 
 retail:
   name: Mid-size retail bank
@@ -87,23 +92,29 @@ retail:
     cet1: 4.51
     rwa: 23.73
     capital_requirement_ratio: 0.105
+  runoff_speed_factor:
+    value: 1.0
+    unit: multiplier of run-off rates
+    source: ASSUMPTION
 
 digital:
   name: Digital deposit bank
-  description: Online-only bank funded mostly by retail deposits collected through apps and platforms.
+  description: Online-only bank funded by rate-sensitive deposits collected through apps and platforms, with thin liquid assets and collateral.
   unit: EUR bn
+  # Rebuilt for SPEC_V2 phase A so that its weakness shows: deposits that move fast (speed
+  # factor above 1) and few liquid assets. Invented proportions, no data behind them.
   source: ASSUMPTION
   assets:
-    cash_reserves: 3.0
-    hqla_level1: 3.0
-    hqla_level2: 1.0
-    other_eligible_collateral: 2.0
-    illiquid_assets: 11.0
+    cash_reserves: 1.5
+    hqla_level1: 2.0
+    hqla_level2: 0.5
+    other_eligible_collateral: 1.0
+    illiquid_assets: 15.0
   liabilities:
     deposits:
-      insured_retail: 9.0
-      uninsured_retail: 3.5
-      corporate: 1.5
+      insured_retail: 8.0
+      uninsured_retail: 5.0
+      corporate: 1.0
       financial: 0.5
     wholesale_funding:
       maturing:
@@ -117,6 +128,13 @@ digital:
     cet1: 1.5
     rwa: 8.0
     capital_requirement_ratio: 0.105
+  # Online deposits leave faster than the global rates, insured ones included.
+  runoff_speed_factor:
+    value: 1.5
+    unit: multiplier of run-off rates
+    source: ASSUMPTION
+    low: 1.0
+    high: 2.5
 
 specialised:
   name: Specialised lender
@@ -146,3 +164,7 @@ specialised:
     cet1: 2.8
     rwa: 17.0
     capital_requirement_ratio: 0.11
+  runoff_speed_factor:
+    value: 1.0
+    unit: multiplier of run-off rates
+    source: ASSUMPTION

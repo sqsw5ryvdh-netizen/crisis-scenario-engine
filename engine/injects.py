@@ -13,7 +13,7 @@ from typing import Optional
 from engine.model import SimulationResult, uninsured_share
 from engine.schema import ACTORS, INJECT_EVENTS, Bank, InjectsConfig, ModelParams, Scenario
 
-_TRIGGER_KINDS = ("recovery", "early_intervention", "failure")
+_TRIGGER_KINDS = ("recovery", "early_intervention", "likely_to_fail", "failure")
 _FIRST_USE = {
     "first_hqla_sale": "funded_hqla",
     "first_central_bank": "funded_central_bank",

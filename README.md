@@ -29,11 +29,11 @@ outlines the control to use. Next and Back move between steps; Exit demo leaves 
 1. **Pick a bank archetype.** The demo uses the digital deposit bank.
 2. **Pick a trigger.** The demo uses the fast digital run.
 3. **Press run.** Results appear and the crisis starts playing.
-4. **Watch the crisis unfold.** The timeline reveals one day at a time. The bank reaches
-   the recovery stage on day 1, early intervention on day 4 and fails on day 10. Play
-   replays it; the day slider stops on a day.
-5. **Move a slider.** Raise Uninsured deposits from 38% to 60%: the failure day moves from
-   day 10 to day 6, and the line under the figure states the change.
+4. **Watch the crisis unfold.** The timeline reveals one day at a time. The bank goes
+   through recovery, early intervention and the likely-to-fail warning on day 1 and cannot
+   pay its obligations on day 2. Play replays it; the day slider stops on a day.
+5. **Move a slider.** Lower Uninsured deposits from 45% to 20%: the payments default moves
+   from day 2 to day 4, and the line under the figure states the change.
 6. **Export the exercise script.** Download it as a Word document, with the injects and
    the daily data as CSV files.
 
@@ -63,7 +63,7 @@ This prints the daily table. Add `--runs 500` for the uncertainty ranges and
 - `config/`: every parameter, bank, scenario and script template, each with a unit and a source.
 - `app/`: the Streamlit app. It only calls the engine.
 - `scripts/calibrate_te2025.py`: rebuilds the calibrated bank proportions from the EBA file.
-- `docs/SPEC.md`: what the tool must do. `docs/STATUS.md`: what is built.
+- `docs/SPEC.md` and `docs/SPEC_V2.md`: what the tool must do. `docs/STATUS.md`: what is built.
   `docs/CALIBRATION.md`: data sources and the comparison with real cases.
 - `tests/`: the test suite, including the four domain checks (balance sheet identity, no
   negative balances, nothing changes with zero run-off, higher severity never fails later).
@@ -76,8 +76,11 @@ This prints the daily table. Add `--runs 500` for the uncertainty ranges and
 - **Only two archetypes are calibrated**, and only in part: the universal and retail banks
   use peer medians from the EBA 2025 Transparency Exercise for some balance sheet lines.
   The digital and specialised banks are invented proportions.
-- **The slow-burn scenario runs faster than the one real case it was compared with**
-  (see `docs/CALIBRATION.md`, section 7). Nothing was tuned to the real cases.
+- **The slow-burn scenario was set on one figure of one real case** (see
+  `docs/CALIBRATION.md`, section 8). It is an order-of-magnitude check, not a calibration,
+  and at that pace no bank defaults within 30 days.
+- **"Likely to fail" is a warning computed by the model**, not a decision by an authority.
+  Decisions and their effects come in phase B of `docs/SPEC_V2.md`.
 - **Daily steps only.** A run that happens within hours is shown as one day.
 - **Contagion is one-way** and works through news only: the second bank never affects the first.
 - **The wording of the exercise script is a draft** and contains no legal references.

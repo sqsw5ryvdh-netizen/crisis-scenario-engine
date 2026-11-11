@@ -55,11 +55,17 @@ WATERFALL_COLUMNS = {
     "funded_cash": "Cash",
     "funded_hqla": "HQLA sale",
     "funded_central_bank": "Central bank",
+    "funded_ela": "ELA",
     "funded_fire_sale": "Fire sale",
     "unmet_outflow": "Unmet",
     "queued_withdrawals": "Queued",
     "status": "Status",
 }
+
+
+def _status_label(status: str) -> str:
+    """Stage name as shown to the user; the engine calls the payments default 'failed'."""
+    return "payments default" if status == "failed" else status.replace("_", " ")
 
 
 @st.cache_resource
@@ -151,11 +157,11 @@ def timeline_view(result, horizon, unit, band_data, n_runs) -> None:
     )
     chart_column.caption(
         f"Line: central run. Shaded band, shown on the last day: 5th to 95th percentile of "
-        f"{n_runs} runs; a run that fails keeps its last values."
+        f"{n_runs} runs; a run that ends in a payments default keeps its last values."
     )
     row = table[table["day"] == day].iloc[0]
     with day_column:
-        st.markdown(f"**Day {day}: {row['status'].replace('_', ' ')}**")
+        st.markdown(f"**Day {day}: {_status_label(row['status'])}**")
         st.metric(f"Liquidity buffer ({unit})", f"{row['liquidity_buffer']:.2f}")
         st.metric("Deposits lost", f"{row['cum_deposit_loss_pct']:.1f}%")
         st.metric("CET1 ratio", f"{100 * row['cet1_ratio']:.1f}%")
@@ -301,9 +307,15 @@ if st.session_state.get("runs_key") != runs_key:
 monte_carlo = st.session_state["runs"]
 uncertainty = summarise(monte_carlo)
 
-failure, deposit_loss, funding = st.columns(3)
+failure, flag, deposit_loss, funding = st.columns(4)
+flag.metric(
+    "Likely-to-fail flag",
+    f"Day {result.likely_to_fail_day}" if result.likely_to_fail_day is not None else "Not raised",
+    help="First day on which liquidity covers too few days of outflows, or capital is "
+    "projected below the requirement. A warning by the model; the run continues.",
+)
 failure.metric(
-    "Failure day",
+    "Payments default",
     f"Day {result.failure_day}" if result.failure_day is not None else f"None in {horizon} days",
     delta=demo.describe_shift(result.failure_day, reference.failure_day),
     delta_color="off",
@@ -315,18 +327,18 @@ deposit_loss.metric("Cumulative deposit loss", f"{table['cum_deposit_loss_pct'].
 funding.metric(
     f"Resolution funding need ({bank.unit})",
     f"{result.funding_need.need:.2f}" if result.funding_need else "n/a",
-    help="Liquidity needed to cover projected outflows after the failure day.",
+    help="Liquidity needed to cover projected outflows after the payments default.",
 )
 
 if uncertainty.funding_need_low is None:
-    need_range = "no run fails"
+    need_range = "no run defaults"
 else:
     need_range = (
         f"{uncertainty.funding_need_low:.2f} to {uncertainty.funding_need_high:.2f} {bank.unit}"
     )
 st.caption(
-    f"Across {n_runs} runs with uncertain parameters: the bank fails in "
-    f"{uncertainty.fail_share:.0%} of runs; failure {describe_failure_day(uncertainty, horizon)}; "
+    f"Across {n_runs} runs with uncertain parameters: the bank defaults on payments in "
+    f"{uncertainty.fail_share:.0%} of runs; default {describe_failure_day(uncertainty, horizon)}; "
     f"funding need {need_range}. Ranges are 5th to 95th percentiles. The headline figures "
     "above are the central run, which is not always the median."
 )
@@ -347,11 +359,12 @@ if funding_tab.open:
     with funding_tab:
         st.subheader("How each day's outflow was funded")
         st.caption(
-            "Order of use: cash, sale of liquid assets (HQLA), central bank funding, "
-            f"fire sale of illiquid assets. Amounts in {bank.unit}."
+            "Order of use: cash, sale of liquid assets (HQLA), central bank funding, emergency "
+            "liquidity assistance (ELA, only if granted), fire sale of illiquid assets. "
+            f"Amounts in {bank.unit}."
         )
         waterfall = table[list(WATERFALL_COLUMNS)].rename(columns=WATERFALL_COLUMNS)
-        waterfall["Status"] = waterfall["Status"].str.replace("_", " ")
+        waterfall["Status"] = waterfall["Status"].map(_status_label)
         amount_columns = [c for c in waterfall.columns if c not in ("Day", "Status")]
         st.dataframe(
             waterfall,
@@ -364,8 +377,10 @@ if funding_tab.open:
 
 if uncertainty_tab.open:
     with uncertainty_tab:
-        st.subheader("Failure-day distribution")
-        st.caption(f"Number of the {n_runs} runs in which the bank fails on each day.")
+        st.subheader("Payments default day distribution")
+        st.caption(
+            f"Number of the {n_runs} runs in which the bank defaults on payments on each day."
+        )
         st.plotly_chart(
             build_failure_distribution(failure_day_counts(monte_carlo), horizon), width="stretch"
         )
@@ -417,8 +432,8 @@ if script_tab.open:
 def _outcome(run) -> str:
     stage = run.table["status"].iloc[-1].replace("_", " ")
     if run.failure_day is not None:
-        return f"Fails day {run.failure_day}"
-    return f"No failure ({stage})"
+        return f"Payments default day {run.failure_day}"
+    return f"No payments default ({stage})"
 
 
 if contagion_tab.open:

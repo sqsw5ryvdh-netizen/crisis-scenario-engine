@@ -56,13 +56,13 @@ DEMO_STEPS = (
     DemoStep(
         "Watch the crisis unfold",
         "The crisis plays day by day. Press Play to see it again, or drag the day slider to "
-        "stop on a day. Trigger stages appear as dashed lines.",
+        "stop on a day. The stages appear as dashed lines, up to the payments default.",
         "ctl_play",
         TAB_TIMELINE,
     ),
     DemoStep(
         "Move a slider",
-        "In the sidebar, raise Uninsured deposits and watch the failure day. The figure under "
+        "In the sidebar, move Uninsured deposits and watch the payments default day. The line under "
         "it compares with the starting values.",
         "ctl_uninsured",
         TAB_TIMELINE,
@@ -93,9 +93,9 @@ def describe_shift(failure_day: Optional[int], reference_day: Optional[int]) -> 
     if failure_day == reference_day:
         return None
     if reference_day is None:
-        return "No failure with the starting values"
+        return "No payments default with the starting values"
     if failure_day is None:
-        return f"Failed on day {reference_day} with the starting values"
+        return f"Payments default on day {reference_day} with the starting values"
     days = abs(failure_day - reference_day)
     unit = "day" if days == 1 else "days"
     direction = "earlier" if failure_day < reference_day else "later"

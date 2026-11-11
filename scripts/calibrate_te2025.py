@@ -157,6 +157,7 @@ def archetype_block(key: str, median: pd.Series, current: dict) -> dict:
             "rwa": amount(median["total_risk_exposure_amount"]),
             "capital_requirement_ratio": current["capital"]["capital_requirement_ratio"],
         },
+        "runoff_speed_factor": current["runoff_speed_factor"],
     }
 
 

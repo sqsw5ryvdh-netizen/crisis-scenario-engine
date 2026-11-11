@@ -100,7 +100,7 @@ def test_all_actors_appear_and_no_placeholder_is_left(bank, scenario):
 
 
 def test_first_use_of_each_funding_source_is_a_key_event():
-    result, script = make("digital", "fast_run")
+    result, script = make("universal", "fast_run")
     by_kind = {
         event.kind: key_day.day for key_day in script.key_days for event in key_day.events
     }
@@ -149,7 +149,7 @@ def test_settings_list_parameters_changed_from_default():
 def test_script_without_failure_ends_with_survival():
     result, script = make("digital", "slow_burn")
     assert result.failure_day is None
-    assert "does not fail" in script.summary
+    assert "keeps paying its obligations" in script.summary
     assert script.key_days[-1].events[-1].kind == "end_no_failure"
 
 

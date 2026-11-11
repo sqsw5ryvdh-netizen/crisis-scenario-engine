@@ -104,9 +104,9 @@ def test_app_opens_on_the_demo_selection_with_selectors_sliders_and_timeline():
     assert [box.label for box in at.selectbox] == ["Bank archetype", "Trigger scenario"]
     assert len(at.sidebar.slider) == 6
     assert [n.label for n in at.number_input] == ["Random seed"]
-    assert [metric.label for metric in at.metric][0] == "Failure day"
+    assert [metric.label for metric in at.metric][:2] == ["Payments default", "Likely-to-fail flag"]
     assert [tab.label for tab in at.tabs] == demo.TABS
-    assert at.slider(key="day").value == 10  # whole run shown: the bank fails on day 10
+    assert at.slider(key="day").value == 2  # whole run shown: payments default on day 2
 
 
 @pytest.mark.parametrize(
@@ -114,7 +114,7 @@ def test_app_opens_on_the_demo_selection_with_selectors_sliders_and_timeline():
     [
         (demo.TAB_FUNDING, lambda at: len(at.dataframe) == 1),
         (demo.TAB_UNCERTAINTY, lambda at: any(
-            h.value == "Failure-day distribution" for h in at.subheader)),
+            h.value == "Payments default day distribution" for h in at.subheader)),
         (demo.TAB_SCRIPT, lambda at: len(at.expander) >= 2 and len(at.get("download_button")) == 3),
         (demo.TAB_CONTAGION, lambda at: at.checkbox(key="same_country").value is True),
     ],
@@ -132,12 +132,12 @@ def test_moving_a_slider_reruns_in_under_one_second_and_shifts_failure_day():
     assert not at.metric[0].delta
     slider = next(s for s in at.slider if s.label.startswith("Uninsured deposits"))
     start = time.perf_counter()
-    slider.set_value(80).run(timeout=30)
+    slider.set_value(20).run(timeout=30)
     elapsed = time.perf_counter() - start
     assert not at.exception
     assert elapsed < 1.0, f"re-run took {elapsed:.2f}s"
-    assert (before, at.metric[0].value) == ("Day 10", "Day 4")
-    assert at.metric[0].delta == "6 days earlier than with the starting values (day 10)"
+    assert (before, at.metric[0].value) == ("Day 2", "Day 4")
+    assert at.metric[0].delta == "2 days later than with the starting values (day 2)"
     assert at.slider(key="day").value == 4  # the day view follows the new run
 
 
@@ -176,14 +176,15 @@ def test_assumptions_page_opens_from_the_navigation():
 # ------------------------------------------------- day-by-day view
 
 
-def _digital_fast_run():
-    bank, scenario = CONFIG.banks["digital"], CONFIG.scenarios["fast_run"]
+def _long_run():
+    """A run with every stage on a different day and news on days 1 and 6 (default on day 9)."""
+    bank, scenario = CONFIG.banks["universal"], CONFIG.scenarios["geopolitical"]
     return bank, scenario, simulate(bank, CONFIG.model, scenario)
 
 
-@pytest.mark.parametrize("day", [0, 1, 3, 4, 9])
+@pytest.mark.parametrize("day", [0, 1, 3, 4, 8])
 def test_day_view_never_shows_later_days(day):
-    bank, scenario, result = _digital_fast_run()
+    bank, scenario, result = _long_run()
     band_data = bands(run_monte_carlo(bank, CONFIG.model, scenario, 50, 1))
     fig = build_timeline(result, HORIZON, "EUR bn", band_data, until_day=day)
     assert len(fig.data) == (3 if day == 0 else 4)  # three lines, plus news from day 1; no band
@@ -195,7 +196,7 @@ def test_day_view_never_shows_later_days(day):
 
 
 def test_day_view_keeps_the_axes_of_the_whole_run_and_ends_with_the_band():
-    bank, scenario, result = _digital_fast_run()
+    bank, scenario, result = _long_run()
     band_data = bands(run_monte_carlo(bank, CONFIG.model, scenario, 50, 1))
     whole = build_timeline(result, HORIZON, "EUR bn", band_data)
     for day in (0, 5):
@@ -209,12 +210,13 @@ def test_day_view_keeps_the_axes_of_the_whole_run_and_ends_with_the_band():
 def test_play_reveals_the_run_from_day_zero_to_the_last_day(monkeypatch):
     monkeypatch.setattr(demo, "PLAYBACK_SECONDS", 0)
     at = open_app()
-    at.slider(key="day").set_value(3).run(timeout=30)
-    assert any(m.value.startswith("**Day 3:") for m in at.markdown)
-    assert not any("Day 4," in m.value for m in at.markdown)  # early intervention not yet shown
+    at.selectbox(key="bank").set_value("universal").run(timeout=30)
+    at.slider(key="day").set_value(2).run(timeout=30)
+    assert any(m.value.startswith("**Day 2:") for m in at.markdown)
+    assert not any("Day 4," in m.value for m in at.markdown)  # the default is not shown yet
     at.button(key="play").click().run(timeout=30)
     assert not at.exception
-    assert at.slider(key="day").value == 10
+    assert at.slider(key="day").value == 4
     assert at.session_state["play_next"] is None
 
 
@@ -226,8 +228,8 @@ def test_describe_shift():
     assert demo.describe_shift(None, None) is None
     assert demo.describe_shift(5, 10) == "5 days earlier than with the starting values (day 10)"
     assert demo.describe_shift(11, 10) == "1 day later than with the starting values (day 10)"
-    assert demo.describe_shift(None, 10) == "Failed on day 10 with the starting values"
-    assert demo.describe_shift(7, None) == "No failure with the starting values"
+    assert demo.describe_shift(None, 10) == "Payments default on day 10 with the starting values"
+    assert demo.describe_shift(7, None) == "No payments default with the starting values"
 
 
 def test_demo_steps_follow_the_story_and_name_existing_tabs():
@@ -265,15 +267,15 @@ def test_full_demo_walk_forward_and_back(monkeypatch):
     at.button(key="demo_run").click().run(timeout=30)
     assert not at.exception
     assert "step 4 of 6" in _panel_title(at)
-    assert at.metric[0].value == "Day 10"
-    assert at.slider(key="day").value == 10  # played from day 0 to the end
+    assert at.metric[0].value == "Day 2"
+    assert at.slider(key="day").value == 2  # played from day 0 to the end
     assert at.session_state["view"] == demo.TAB_TIMELINE
 
     at.button(key="demo_next").click().run(timeout=30)
     assert "step 5 of 6: Move a slider" in _panel_title(at)
-    next(s for s in at.slider if s.label.startswith("Uninsured")).set_value(60).run(timeout=30)
-    assert at.metric[0].value == "Day 6"
-    assert at.metric[0].delta.startswith("4 days earlier")
+    next(s for s in at.slider if s.label.startswith("Uninsured")).set_value(20).run(timeout=30)
+    assert at.metric[0].value == "Day 4"
+    assert at.metric[0].delta.startswith("2 days later")
 
     at.button(key="demo_next").click().run(timeout=30)
     assert "step 6 of 6: Export" in _panel_title(at)
@@ -284,12 +286,12 @@ def test_full_demo_walk_forward_and_back(monkeypatch):
     at.button(key="demo_back").click().run(timeout=30)
     assert "step 5 of 6" in _panel_title(at)
     assert at.session_state["view"] == demo.TAB_TIMELINE
-    assert at.metric[0].value == "Day 6"  # slider values survive moving between steps
+    assert at.metric[0].value == "Day 4"  # slider values survive moving between steps
 
     at.button(key="demo_exit").click().run(timeout=30)
     assert not at.exception
     assert not [m for m in at.markdown if m.value.startswith("**Guided demo")]
-    assert at.metric[0].value == "Day 6"
+    assert at.metric[0].value == "Day 4"
 
 
 # ------------------------------------------------- one-command start

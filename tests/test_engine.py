@@ -162,7 +162,7 @@ def test_triggers_fire_in_order_and_never_go_back(bank, scenario):
     assert reached == sorted(reached)
     if failure is not None:
         assert recovery is not None and early_intervention is not None
-    order = ["normal", "recovery", "early_intervention", "failed"]
+    order = ["normal", "recovery", "early_intervention", "likely_to_fail", "failed"]
     stages = [order.index(s) for s in result.table["status"]]
     assert stages == sorted(stages)
 

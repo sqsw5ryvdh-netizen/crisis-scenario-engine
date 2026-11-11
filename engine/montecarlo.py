@@ -33,7 +33,10 @@ SAMPLED_PARAMETERS = (
     "central_bank_mobilisation_lag_days",
     "fire_sale_discount",
     "fire_sale_daily_cap_share",
+    "panic_decay",
 )
+# The archetype's run-off speed factor is sampled too (it belongs to the bank, not the model).
+SPEED_FACTOR = "runoff_speed_factor"
 # Whole-number parameters: draws are rounded, and their range shifts additively.
 INTEGER_PARAMETERS = ("central_bank_mobilisation_lag_days",)
 # Daily series kept for the uncertainty bands.
@@ -45,7 +48,7 @@ class MonteCarloResult:
     n_runs: int
     seed: int
     horizon: int
-    failure_days: np.ndarray  # one per run; NaN = no failure within the horizon
+    failure_days: np.ndarray  # payments default day per run; NaN = none within the horizon
     funding_needs: np.ndarray  # one per run; NaN = no failure
     series: dict[str, np.ndarray]  # name -> array (n_runs, horizon + 1)
     draws: pd.DataFrame  # sampled value of each parameter, one row per run
@@ -112,6 +115,7 @@ def run_monte_carlo(
     draws = {"severity": _draw(rng, scenario.severity, n_runs, integer=False)}
     for name in SAMPLED_PARAMETERS:
         draws[name] = _draw(rng, getattr(resolved, name), n_runs, name in INTEGER_PARAMETERS)
+    draws[SPEED_FACTOR] = _draw(rng, bank.runoff_speed_factor, n_runs, integer=False)
 
     failure_days = np.full(n_runs, np.nan)
     funding_needs = np.full(n_runs, np.nan)
@@ -131,7 +135,14 @@ def run_monte_carlo(
                 "overrides": overrides,
             }
         )
-        result = simulate(bank, params, run_scenario)
+        run_bank = bank.model_copy(
+            update={
+                SPEED_FACTOR: bank.runoff_speed_factor.model_copy(
+                    update={"value": float(draws[SPEED_FACTOR][i])}
+                )
+            }
+        )
+        result = simulate(run_bank, params, run_scenario)
         if result.failure_day is not None:
             failure_days[i] = result.failure_day
             funding_needs[i] = result.funding_need.need

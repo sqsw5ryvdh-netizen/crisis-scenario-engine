@@ -135,6 +135,8 @@ class Bank(StrictModel):
     assets: Assets
     liabilities: Liabilities
     capital: Capital
+    # Multiplies every deposit run-off rate of this archetype (1 = the global rates).
+    runoff_speed_factor: Parameter
 
     def source_of(self, item: str) -> str:
         return self.sources.get(item, self.source)
@@ -146,6 +148,8 @@ class Bank(StrictModel):
             raise ValueError(f"sources for unknown lines: {sorted(unknown)}")
         if any(not text.strip() for text in self.sources.values()):
             raise ValueError("a line source must not be empty")
+        if self.runoff_speed_factor.value < 0:
+            raise ValueError("runoff_speed_factor must be >= 0")
         gap = self.assets.total() - (self.liabilities.total() + self.capital.cet1)
         if abs(gap) > BALANCE_TOLERANCE:
             raise ValueError(
@@ -157,7 +161,8 @@ class Bank(StrictModel):
 class NewsEvent(StrictModel):
     day: int = Field(ge=1)
     headline: str = Field(min_length=1)
-    panic_shock: float = NonNegative
+    # Added to the panic input on that day; negative for a reassuring event.
+    panic_shock: float
 
 
 class Scenario(StrictModel):
@@ -186,11 +191,13 @@ class ModelParams(StrictModel):
     base_runoff_corporate: Parameter
     base_runoff_financial: Parameter
 
-    # Panic multiplier = 1 + (max - 1) * logistic(steepness * (x - midpoint)),
-    # x = cumulative deposit loss share + news shocks to date.
+    # Panic multiplier = 1 + (max - 1) * logistic(steepness * (x - midpoint)).
+    # x is a fading memory: each day it loses the share `panic_decay`, then the day's new
+    # deposit loss share and news shocks are added. It never goes below zero.
     panic_max_multiplier: Parameter
     panic_steepness: Parameter
     panic_midpoint: Parameter
+    panic_decay: Parameter
     # Rollover fraction = 1 - sensitivity * normalised panic, clamped to [0, 1].
     wholesale_rollover_sensitivity: Parameter
     # Upper limit on the rollover fraction: 1 = market open, 0 = market closed.
@@ -207,6 +214,12 @@ class ModelParams(StrictModel):
     central_bank_mobilisation_lag_days: Parameter
     fire_sale_discount: Parameter
     fire_sale_daily_cap_share: Parameter
+    # Emergency liquidity assistance: usable from the granted day (0 = not granted) and only
+    # while the CET1 ratio is at or above the requirement. Collateral: what is left of the
+    # eligible collateral plus a share of the loan book, at a higher haircut.
+    ela_granted_from_day: Parameter
+    ela_haircut: Parameter
+    ela_eligible_loan_share: Parameter
 
     # LCR proxy: 30-day outflow rates.
     lcr_outflow_rate_insured_retail: Parameter
@@ -220,6 +233,9 @@ class ModelParams(StrictModel):
     recovery_deposit_loss_threshold: Parameter
     early_intervention_lcr_threshold: Parameter
     early_intervention_cet1_margin: Parameter
+    # "Likely to fail" flag: survival horizon below this number of days, or CET1 ratio
+    # projected below the requirement over the same number of days.
+    likely_to_fail_survival_days: Parameter
     resolution_funding_days: Parameter
 
     # Contagion: panic shock received by a second bank when the first bank reaches a
@@ -251,6 +267,11 @@ class ModelParams(StrictModel):
             raise ValueError("horizon_days must be a positive whole number")
         if self.panic_max_multiplier.value < 1:
             raise ValueError("panic_max_multiplier must be >= 1")
+        if self.panic_decay.value > 1:
+            raise ValueError("panic_decay must be <= 1")
+        for name in ("ela_granted_from_day", "likely_to_fail_survival_days"):
+            if getattr(self, name).value != int(getattr(self, name).value):
+                raise ValueError(f"{name} must be a whole number")
         for name in ("monte_carlo_runs", "monte_carlo_seed"):
             if getattr(self, name).value != int(getattr(self, name).value):
                 raise ValueError(f"{name} must be a whole number")
@@ -296,6 +317,7 @@ INJECT_EVENTS = (
     "first_fire_sale",
     "recovery",
     "early_intervention",
+    "likely_to_fail",
     "failure",
     "end_no_failure",
 )

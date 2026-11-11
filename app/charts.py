@@ -18,10 +18,11 @@ NEWS_COLOR = "#898781"
 TRIGGERS = {
     "recovery": ("Recovery", "#fab219"),
     "early_intervention": ("Early intervention", "#ec835a"),
-    "failure": ("Failure", "#d03b3b"),
+    "likely_to_fail": ("Likely to fail", "#d03b3b"),
+    "failure": ("Payments default", "#8f1d2c"),
 }
 # Vertical position of each trigger label (paper coordinates), staggered to avoid overlap.
-_LABEL_Y = {"recovery": 1.05, "early_intervention": 1.09, "failure": 1.13}
+_LABEL_Y = {"recovery": 1.05, "early_intervention": 1.09, "likely_to_fail": 1.13, "failure": 1.17}
 
 
 def build_timeline(
@@ -133,14 +134,14 @@ def build_timeline(
     fig.update_layout(
         height=600,
         showlegend=False,
-        margin=dict(l=10, r=10, t=90, b=10),
+        margin=dict(l=10, r=10, t=110, b=10),
         hovermode="x unified",
     )
     return fig
 
 
 def build_failure_distribution(counts: pd.DataFrame, horizon: int) -> go.Figure:
-    """Number of Monte Carlo runs failing on each day, plus a bar for runs that do not fail.
+    """Number of Monte Carlo runs reaching payments default on each day, plus a bar for the rest.
 
     `counts` comes from engine.montecarlo.failure_day_counts.
     """
@@ -150,7 +151,7 @@ def build_failure_distribution(counts: pd.DataFrame, horizon: int) -> go.Figure:
         go.Bar(
             x=counts["day"],
             y=counts["runs"],
-            name="Runs failing on this day",
+            name="Runs defaulting on this day",
             marker=dict(color=LINE_COLOR),
             hovertemplate="Day %{x}: %{y} runs<extra></extra>",
         )
@@ -159,16 +160,16 @@ def build_failure_distribution(counts: pd.DataFrame, horizon: int) -> go.Figure:
         go.Bar(
             x=[no_failure_x],
             y=[counts.attrs["no_failure"]],
-            name="No failure",
+            name="No default",
             marker=dict(color=NEWS_COLOR),
-            hovertemplate=f"No failure within {horizon} days: " + "%{y} runs<extra></extra>",
+            hovertemplate=f"No payments default within {horizon} days: " + "%{y} runs<extra></extra>",
         )
     )
     ticks = list(range(0, horizon + 1, 5))
     fig.update_xaxes(
-        title_text="Failure day",
+        title_text="Payments default day",
         tickvals=ticks + [no_failure_x],
-        ticktext=[str(t) for t in ticks] + ["No failure"],
+        ticktext=[str(t) for t in ticks] + ["No default"],
         range=[-0.75, no_failure_x + 0.75],
     )
     fig.update_yaxes(title_text="Number of runs", rangemode="tozero")

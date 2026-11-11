@@ -23,10 +23,12 @@ fast_run:
 slow_burn:
   name: Slow burn
   description: Weeks of gradual confidence erosion.
+  # Set so that the universal archetype loses about a quarter of its deposits in 30 days,
+  # the order of magnitude of one documented case (docs/CALIBRATION.md, section 7).
   severity:
-    value: 1.0
-    low: 0.6
-    high: 1.8
+    value: 0.3
+    low: 0.2
+    high: 0.5
     unit: multiplier
     source: ASSUMPTION
   news_events:

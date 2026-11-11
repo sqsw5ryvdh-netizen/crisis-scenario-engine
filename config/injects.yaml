@@ -14,13 +14,13 @@ actors:
 
 summary:
   failure: >-
-    In this run, {bank_name} goes through the "{scenario_name}" scenario and is assessed as
-    failing or likely to fail on day {failure_day}. By then it has lost {deposit_loss_pct} of
+    In this run, {bank_name} goes through the "{scenario_name}" scenario and can no
+    longer pay its obligations in full on day {failure_day} (payments default). By then it has lost {deposit_loss_pct} of
     its deposits. The estimated funding need in resolution is {funding_need} {unit}, which
-    covers {funding_need_days} days of projected outflows after the failure day.
+    covers {funding_need_days} days of projected outflows after that day.
   no_failure: >-
-    In this run, {bank_name} goes through the "{scenario_name}" scenario and does not fail
-    within {horizon_days} days. It loses {deposit_loss_pct} of its deposits and ends the
+    In this run, {bank_name} goes through the "{scenario_name}" scenario and keeps paying its
+    obligations for the whole {horizon_days} days. It loses {deposit_loss_pct} of its deposits and ends the
     period with a liquidity buffer of {liquidity_buffer} {unit} and a CET1 ratio of
     {cet1_ratio_pct}.
 
@@ -44,10 +44,10 @@ glossary:
     definition: Selling loans or other illiquid assets in a hurry, at a discount. The loss reduces the bank's capital.
   - term: Queued withdrawals
     definition: Withdrawals customers have requested during a payment outage that the bank has not yet been able to execute.
-  - term: Recovery, early intervention, failing or likely to fail
-    definition: The three escalation stages used in this script. Recovery is led by the bank, early intervention by the competent authority, and failing or likely to fail opens the way to resolution.
+  - term: Recovery, early intervention, likely to fail, payments default
+    definition: The four escalation stages used in this script. Recovery is led by the bank and early intervention by the competent authority. Likely to fail is a forward-looking warning raised by the model when liquidity or capital is about to run out. Payments default is the first day the bank cannot pay its obligations in full.
   - term: Funding need in resolution
-    definition: The liquidity required to cover projected outflows in the days after the bank is declared failing or likely to fail.
+    definition: The liquidity required to cover projected outflows in the days after the payments default.
 
 events:
   opening:
@@ -206,18 +206,42 @@ events:
         sees: Deposits are down {deposit_loss_pct} since the start. The buffer covers {survival_days} days at today's pace.
         decision: Decide which remaining recovery options can still be carried out in time.
 
-  failure:
-    title: Failing or likely to fail
+  likely_to_fail:
+    title: The bank is likely to fail
     situation: >-
-      The bank can no longer continue on its own: {trigger_reason}. The estimated funding
+      On current trends the bank will not be able to continue on its own: {trigger_reason}.
+      It is still paying its obligations today. The liquidity buffer is {liquidity_buffer}
+      {unit} and the CET1 ratio is {cet1_ratio_pct} against a requirement of
+      {cet1_requirement_pct}.
+    injects:
+      competent_authority:
+        sees: "Forward-looking assessment: {trigger_reason}. The bank is still meeting its payments."
+        decision: Decide whether to determine that the bank is failing or likely to fail, or to wait, and on what grounds.
+      resolution_authority:
+        sees: The competent authority reports that the bank is likely to fail. Survival horizon {survival_days} days; deposits down {deposit_loss_pct} since the start.
+        decision: Decide whether resolution preparation is complete enough to act at short notice, and what is still missing.
+      central_bank:
+        sees: The bank's usable liquidity is close to exhaustion. {unencumbered_collateral} {unit} of liquid assets and eligible collateral remains unencumbered.
+        decision: Decide whether further liquidity could be provided, against which collateral, and under what conditions.
+      deposit_guarantee_scheme:
+        sees: The authorities report that the bank is likely to fail. Covered deposits are about {insured_deposits} {unit}.
+        decision: Decide whether to start preparing for a possible payout.
+      bank_management:
+        sees: The buffer covers {survival_days} days at today's pace. CET1 ratio {cet1_ratio_pct}.
+        decision: Decide what to tell the authorities about the bank's ability to continue, and which measures are still possible.
+
+  failure:
+    title: Payments default
+    situation: >-
+      The bank cannot pay its obligations in full: {trigger_reason}. The estimated funding
       need in resolution is {funding_need} {unit}, covering {funding_need_days} days of
       projected outflows.
     injects:
       competent_authority:
-        sees: "The latest figures show: {trigger_reason}. CET1 ratio {cet1_ratio_pct}; deposits down {deposit_loss_pct} since the start."
-        decision: Decide whether to determine that the bank is failing or likely to fail.
+        sees: "The bank has defaulted on payments: {trigger_reason}. CET1 ratio {cet1_ratio_pct}; deposits down {deposit_loss_pct} since the start."
+        decision: Decide on the determination that the bank is failing or likely to fail, if it has not been made yet.
       resolution_authority:
-        sees: The bank is about to be declared failing or likely to fail. Estimated funding need in resolution is {funding_need} {unit} over {funding_need_days} days.
+        sees: The bank has defaulted on payments. Estimated funding need in resolution is {funding_need} {unit} over {funding_need_days} days.
         decision: Decide whether resolution is in the public interest, which resolution approach to use, and how the funding need will be covered.
       central_bank:
         sees: The bank has no usable collateral left for ordinary funding and {central_bank_funding} {unit} of central bank funding is outstanding.
@@ -226,7 +250,7 @@ events:
         sees: The bank is failing. Covered deposits still at the bank are about {insured_deposits} {unit}.
         decision: Decide how to prepare for the outcome chosen by the resolution authority, either a payout to depositors or a contribution to resolution.
       bank_management:
-        sees: The bank cannot meet today's outflows in full or no longer meets its capital requirement. Unpaid outflows today are {unmet_outflow} {unit}.
+        sees: The bank cannot meet today's outflows in full. Unpaid outflows today are {unmet_outflow} {unit}.
         decision: Decide what to communicate to customers and staff, in coordination with the authorities, and provide the data the authorities request.
 
   end_no_failure:

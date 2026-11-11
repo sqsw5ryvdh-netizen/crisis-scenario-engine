@@ -67,10 +67,11 @@ def test_different_seeds_give_different_results():
 
 
 def test_every_draw_stays_inside_its_range():
-    result = mc("universal", "geopolitical")
+    result = mc("digital", "geopolitical")
     resolved = CONFIG.model.with_overrides(CONFIG.scenarios["geopolitical"].overrides)
     ranges = {name: getattr(resolved, name) for name in SAMPLED_PARAMETERS}
     ranges["severity"] = CONFIG.scenarios["geopolitical"].severity
+    ranges["runoff_speed_factor"] = CONFIG.banks["digital"].runoff_speed_factor
     assert set(result.draws.columns) == set(ranges)
     for name, param in ranges.items():
         assert param.low is not None, name
@@ -176,7 +177,7 @@ def test_failure_distribution_chart_shows_all_runs():
     result = mc("digital", "slow_burn")
     fig = build_failure_distribution(failure_day_counts(result), HORIZON)
     assert sum(sum(trace.y) for trace in fig.data) == result.n_runs
-    assert "No failure" in fig.layout.xaxis.ticktext
+    assert "No default" in fig.layout.xaxis.ticktext
 
 
 # ------------------------------------------------- assumptions page
