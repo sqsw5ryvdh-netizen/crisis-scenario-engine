@@ -165,10 +165,42 @@ class NewsEvent(StrictModel):
     panic_shock: float
 
 
+class SeverityFade(StrictModel):
+    """The scenario's pressure eases once its trigger is over.
+
+    From `from_day` on, severity moves from its starting value towards `floor`, halving the
+    distance every `half_life_days`. A severity already at or below the floor does not move.
+    """
+
+    from_day: Parameter
+    half_life_days: Parameter
+    floor: Parameter
+
+    @model_validator(mode="after")
+    def _check(self) -> "SeverityFade":
+        if self.from_day.value < 1 or self.from_day.value != int(self.from_day.value):
+            raise ValueError("fade.from_day must be a whole number >= 1")
+        if self.half_life_days.value <= 0:
+            raise ValueError("fade.half_life_days must be > 0")
+        if self.floor.value < 0:
+            raise ValueError("fade.floor must be >= 0")
+        return self
+
+    def factor_on(self, day: int, severity: float) -> float:
+        """Severity in effect on `day`, given the scenario's starting severity."""
+        start, floor = int(self.from_day.value), self.floor.value
+        if day < start or severity <= floor:
+            return severity
+        remaining = 0.5 ** ((day - start + 1) / self.half_life_days.value)
+        return floor + (severity - floor) * remaining
+
+
 class Scenario(StrictModel):
     name: str = Field(min_length=1)
     description: str = ""
     severity: Parameter
+    # Optional: the pressure eases after the trigger is over (none = constant severity).
+    fade: Optional[SeverityFade] = None
     # Parameter values that replace those of model.yaml for this scenario.
     overrides: dict[str, Parameter] = Field(default_factory=dict)
     news_events: list[NewsEvent] = Field(default_factory=list)
@@ -214,10 +246,9 @@ class ModelParams(StrictModel):
     central_bank_mobilisation_lag_days: Parameter
     fire_sale_discount: Parameter
     fire_sale_daily_cap_share: Parameter
-    # Emergency liquidity assistance: usable from the granted day (0 = not granted) and only
-    # while the CET1 ratio is at or above the requirement. Collateral: what is left of the
-    # eligible collateral plus a share of the loan book, at a higher haircut.
-    ela_granted_from_day: Parameter
+    # Emergency liquidity assistance: usable once granted (a decision, config/decisions.yaml)
+    # and only while the CET1 ratio is at or above the requirement. Collateral: what is left
+    # of the eligible collateral plus a share of the loan book, at a higher haircut.
     ela_haircut: Parameter
     ela_eligible_loan_share: Parameter
 
@@ -269,9 +300,9 @@ class ModelParams(StrictModel):
             raise ValueError("panic_max_multiplier must be >= 1")
         if self.panic_decay.value > 1:
             raise ValueError("panic_decay must be <= 1")
-        for name in ("ela_granted_from_day", "likely_to_fail_survival_days"):
-            if getattr(self, name).value != int(getattr(self, name).value):
-                raise ValueError(f"{name} must be a whole number")
+        days = self.likely_to_fail_survival_days.value
+        if days != int(days):
+            raise ValueError("likely_to_fail_survival_days must be a whole number")
         for name in ("monte_carlo_runs", "monte_carlo_seed"):
             if getattr(self, name).value != int(getattr(self, name).value):
                 raise ValueError(f"{name} must be a whole number")
@@ -350,6 +381,7 @@ INJECT_FIELDS = (
     "funding_need_days",
     "failure_day",
     "horizon_days",
+    "outcome",
 )
 
 
@@ -395,11 +427,13 @@ class EventTemplate(StrictModel):
 class SummaryTemplates(StrictModel):
     failure: str = Field(min_length=1)
     no_failure: str = Field(min_length=1)
+    resolved: str = Field(min_length=1)  # the run ends with a resolution tool or liquidation
 
     @model_validator(mode="after")
     def _check(self) -> "SummaryTemplates":
         _check_placeholders(self.failure)
         _check_placeholders(self.no_failure)
+        _check_placeholders(self.resolved)
         return self
 
 
@@ -432,11 +466,197 @@ class InjectsConfig(StrictModel):
         return self
 
 
+# --------------------------------------------------------------------------- decisions
+
+# Stages a decision can wait for ("failure" is the payments default).
+DECISION_STAGES = ("recovery", "early_intervention", "likely_to_fail", "failure")
+RESOLUTION_TOOLS = ("bail_in", "sale_of_business", "liquidation")
+# Effect types implemented in the engine: name -> (required parameters, optional parameters).
+DECISION_EFFECTS = {
+    "none": ((), ()),
+    "panic_shock": (("shock",), ()),
+    "asset_sale": (("share", "discount", "settlement_days"), ()),
+    "ela": ((), ("cap_share",)),
+    "trigger": ((), ()),
+    "declare_foltf": ((), ()),
+    "moratorium": (("days",), ()),
+    "resolution_tool": ((), ()),
+    "prepare_payout": (("payout_days",), ()),
+    "dgs_payout": ((), ()),
+}
+# Daily figures that can be listed in an actor's view for the decision log.
+DECISION_FIGURES = (
+    "deposits_total",
+    "cum_deposit_loss_pct",
+    "outflow_total",
+    "queued_withdrawals",
+    "liquidity_buffer",
+    "survival_days",
+    "lcr_proxy",
+    "cet1_ratio",
+    "cet1_ratio_projected",
+    "unencumbered_collateral",
+    "central_bank_funding",
+    "ela_funding",
+    "dep_insured_retail",
+    "illiquid_assets",
+    "loss",
+)
+
+
+class DecisionCondition(StrictModel):
+    """When a decision becomes possible. Every part that is given must hold."""
+
+    stage: Optional[str] = None  # this stage, or a later one, has been reached
+    after: Optional[str] = None  # this other decision has been taken ...
+    after_option: Optional[str] = None  # ... with this option (any option if omitted)
+    min_day: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _check(self) -> "DecisionCondition":
+        if self.stage is not None and self.stage not in DECISION_STAGES:
+            raise ValueError(f"unknown stage '{self.stage}'")
+        if self.after_option is not None and self.after is None:
+            raise ValueError("after_option needs after")
+        return self
+
+
+class DecisionOption(StrictModel):
+    name: str = Field(min_length=1)
+    description: str = ""
+    effect: str
+    params: dict[str, Parameter] = Field(default_factory=dict)
+    tool: Optional[str] = None  # for effect "resolution_tool"
+    # For effect "trigger": the other decision and option that are put into effect.
+    trigger_decision: Optional[str] = None
+    trigger_option: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check(self) -> "DecisionOption":
+        if self.effect not in DECISION_EFFECTS:
+            raise ValueError(f"unknown effect '{self.effect}'")
+        required, optional = DECISION_EFFECTS[self.effect]
+        missing = set(required) - set(self.params)
+        unknown = set(self.params) - set(required) - set(optional)
+        if missing or unknown:
+            raise ValueError(
+                f"effect '{self.effect}': missing parameters {sorted(missing)}, "
+                f"unknown parameters {sorted(unknown)}"
+            )
+        for name in ("share", "discount", "cap_share"):
+            if name in self.params and not 0 <= self.params[name].value <= 1:
+                raise ValueError(f"{name} must be between 0 and 1")
+        if "discount" in self.params and self.params["discount"].value >= 1:
+            raise ValueError("discount must be < 1")
+        for name in ("settlement_days", "days", "payout_days"):
+            if name in self.params:
+                value = self.params[name].value
+                if value < 0 or value != int(value):
+                    raise ValueError(f"{name} must be a whole number >= 0")
+        if (self.effect == "resolution_tool") != (self.tool is not None):
+            raise ValueError("tool is required for, and only for, effect 'resolution_tool'")
+        if self.tool is not None and self.tool not in RESOLUTION_TOOLS:
+            raise ValueError(f"unknown resolution tool '{self.tool}'")
+        has_trigger = self.trigger_decision is not None and self.trigger_option is not None
+        if (self.effect == "trigger") != has_trigger:
+            raise ValueError("trigger_decision and trigger_option go with effect 'trigger'")
+        return self
+
+
+class Decision(StrictModel):
+    name: str = Field(min_length=1)
+    actor: str
+    condition: DecisionCondition = Field(default_factory=DecisionCondition)
+    # The option that stands when nobody decides ("authorities act late").
+    default_option: str
+    options: dict[str, DecisionOption]
+
+    @model_validator(mode="after")
+    def _check(self) -> "Decision":
+        if self.actor not in ACTORS:
+            raise ValueError(f"unknown actor '{self.actor}'")
+        if self.default_option not in self.options:
+            raise ValueError(f"default option '{self.default_option}' is not an option")
+        if self.options[self.default_option].effect != "none":
+            raise ValueError("the default option must have effect 'none'")
+        return self
+
+
+class PathChoice(StrictModel):
+    decision: str
+    option: str
+    day: int = Field(default=0, ge=0)
+
+
+class DecisionPath(StrictModel):
+    name: str = Field(min_length=1)
+    description: str = ""
+    choices: list[PathChoice] = Field(default_factory=list)
+
+
+class DecisionsConfig(StrictModel):
+    """Decision points of config/decisions.yaml (SPEC_V2 phase B)."""
+
+    # Days between taking a decision (after the close) and its effect.
+    lead_days: Parameter
+    # Days until covered depositors are paid when the payout was not prepared.
+    payout_days_unprepared: Parameter
+    # Figures each actor has at decision time, written into the decision log.
+    actor_figures: dict[str, list[str]]
+    decisions: dict[str, Decision]
+    default_path: str
+    paths: dict[str, DecisionPath]
+
+    @model_validator(mode="after")
+    def _check(self) -> "DecisionsConfig":
+        for name in ("lead_days", "payout_days_unprepared"):
+            value = getattr(self, name).value
+            if value < 0 or value != int(value):
+                raise ValueError(f"{name} must be a whole number >= 0")
+        if self.lead_days.value < 1:
+            raise ValueError("lead_days must be at least 1: a decision uses end-of-day figures")
+        if set(self.actor_figures) != set(ACTORS):
+            raise ValueError(f"actor_figures must list exactly {list(ACTORS)}")
+        for actor, figures in self.actor_figures.items():
+            unknown = set(figures) - set(DECISION_FIGURES)
+            if unknown:
+                raise ValueError(f"unknown figures for '{actor}': {sorted(unknown)}")
+        for key, decision in self.decisions.items():
+            condition = decision.condition
+            if condition.after is not None:
+                if condition.after not in self.decisions or condition.after == key:
+                    raise ValueError(f"decision '{key}': unknown decision in 'after'")
+                options = self.decisions[condition.after].options
+                if condition.after_option is not None and condition.after_option not in options:
+                    raise ValueError(f"decision '{key}': unknown option in 'after_option'")
+            for option in decision.options.values():
+                if option.effect != "trigger":
+                    continue
+                target = self.decisions.get(option.trigger_decision)
+                if target is None or option.trigger_option not in target.options:
+                    raise ValueError(f"decision '{key}': trigger points to an unknown option")
+                if target.options[option.trigger_option].effect == "trigger":
+                    raise ValueError(f"decision '{key}': a trigger cannot point to a trigger")
+        if self.default_path not in self.paths:
+            raise ValueError(f"unknown default path '{self.default_path}'")
+        for key, path in self.paths.items():
+            seen = set()
+            for choice in path.choices:
+                decision = self.decisions.get(choice.decision)
+                if decision is None or choice.option not in decision.options:
+                    raise ValueError(f"path '{key}': unknown decision or option {choice}")
+                if choice.decision in seen:
+                    raise ValueError(f"path '{key}': decision '{choice.decision}' appears twice")
+                seen.add(choice.decision)
+        return self
+
+
 class Config(StrictModel):
     banks: dict[str, Bank]
     model: ModelParams
     scenarios: dict[str, Scenario]
     injects: InjectsConfig
+    decisions: DecisionsConfig
 
     @model_validator(mode="after")
     def _check_overrides(self) -> "Config":

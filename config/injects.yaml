@@ -24,6 +24,12 @@ summary:
     period with a liquidity buffer of {liquidity_buffer} {unit} and a CET1 ratio of
     {cet1_ratio_pct}.
 
+  resolved: >-
+    In this run, {bank_name} goes through the "{scenario_name}" scenario and is declared
+    failing or likely to fail before it defaults on payments. The run ends on day {day}
+    with this outcome: {outcome}. By then the bank has lost {deposit_loss_pct} of its
+    deposits.
+
 disclaimer: >-
   The bank in this script is fictitious. All figures are produced by a simplified simulation
   model whose parameters are assumptions, not calibrated estimates. The script is a training

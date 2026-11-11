@@ -42,14 +42,25 @@ day's outflow was funded, the spread of failure days over 500 runs with uncertai
 parameters, and contagion to a second bank. The Assumptions page lists every parameter
 with its value and source.
 
+## Decisions
+
+A run can follow a decision path: who decides what, and from which day. Pick a ready-made
+path in the sidebar ("Authorities act late", "ELA granted", "Early FOLTF, bail-in", ...) or
+change single decisions in the panel below it. A decision is taken after the close of a day
+and is in effect the next day. The Decisions tab compares the selected path with another
+one: chart, outcome scorecard side by side, and the decision log with the figures each
+actor had when it decided. Decisions and their effects are defined in
+`config/decisions.yaml`.
+
 ## Command line
 
 ```bash
 .venv/bin/python -m engine.run --bank digital --scenario fast_run
 ```
 
-This prints the daily table. Add `--runs 500` for the uncertainty ranges and
-`--export-dir exports` to write the script and the data files.
+This prints the daily table. Add `--path early_foltf` to follow a decision path,
+`--runs 500` for the uncertainty ranges and `--export-dir exports` to write the script and
+the data files.
 
 ## Tests
 
@@ -60,7 +71,7 @@ This prints the daily table. Add `--runs 500` for the uncertainty ranges and
 ## Layout
 
 - `engine/`: the model, in pure Python (simulation, Monte Carlo, contagion, exercise script, export).
-- `config/`: every parameter, bank, scenario and script template, each with a unit and a source.
+- `config/`: every parameter, bank, scenario, decision and script template, each with a unit and a source.
 - `app/`: the Streamlit app. It only calls the engine.
 - `scripts/calibrate_te2025.py`: rebuilds the calibrated bank proportions from the EBA file.
 - `docs/SPEC.md` and `docs/SPEC_V2.md`: what the tool must do. `docs/STATUS.md`: what is built.
@@ -79,8 +90,11 @@ This prints the daily table. Add `--runs 500` for the uncertainty ranges and
 - **The slow-burn scenario was set on one figure of one real case** (see
   `docs/CALIBRATION.md`, section 8). It is an order-of-magnitude check, not a calibration,
   and at that pace no bank defaults within 30 days.
-- **"Likely to fail" is a warning computed by the model**, not a decision by an authority.
-  Decisions and their effects come in phase B of `docs/SPEC_V2.md`.
+- **"Likely to fail" is a warning computed by the model.** The formal declaration is a
+  decision on a path.
+- **Decision effects are assumptions**, including how fast a scenario's pressure eases.
+  Bail-in and sale of business are outcome labels only: the model does not yet compute
+  losses for creditors. The exported script does not mention decisions yet.
 - **Daily steps only.** A run that happens within hours is shown as one day.
 - **Contagion is one-way** and works through news only: the second bank never affects the first.
 - **The wording of the exercise script is a draft** and contains no legal references.

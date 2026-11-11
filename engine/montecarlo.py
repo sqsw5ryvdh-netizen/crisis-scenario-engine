@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
+from engine.decisions import Choice
 from engine.model import simulate
-from engine.schema import Bank, ModelParams, Parameter, Scenario
+from engine.schema import Bank, DecisionsConfig, ModelParams, Parameter, Scenario
 
 # Model parameters that are sampled when they have a low/high range.
 SAMPLED_PARAMETERS = (
@@ -104,9 +105,18 @@ def _draw(rng: np.random.Generator, param: Parameter, n_runs: int, integer: bool
 
 
 def run_monte_carlo(
-    bank: Bank, params: ModelParams, scenario: Scenario, n_runs: int, seed: int
+    bank: Bank,
+    params: ModelParams,
+    scenario: Scenario,
+    n_runs: int,
+    seed: int,
+    decisions: Optional[DecisionsConfig] = None,
+    choices: Sequence[Choice] = (),
 ) -> MonteCarloResult:
-    """Run `n_runs` simulations with sampled parameters. Same inputs and seed, same output."""
+    """Run `n_runs` simulations with sampled parameters. Same inputs and seed, same output.
+
+    Every run uses the same decision set (`choices`); decision parameters are not sampled.
+    """
     rng = np.random.default_rng(seed)
     resolved = params.with_overrides(scenario.overrides)
     horizon = int(resolved.horizon_days.value)
@@ -142,7 +152,7 @@ def run_monte_carlo(
                 )
             }
         )
-        result = simulate(run_bank, params, run_scenario)
+        result = simulate(run_bank, params, run_scenario, decisions, choices)
         if result.failure_day is not None:
             failure_days[i] = result.failure_day
             funding_needs[i] = result.funding_need.need
@@ -150,7 +160,7 @@ def run_monte_carlo(
         for name in BAND_SERIES:
             values = result.table[name].to_numpy()
             series[name][i, :length] = values
-            # A failed bank is frozen: its last values are carried forward.
+            # A run that ended (default or resolution) is frozen: its last values carry forward.
             series[name][i, length:] = values[-1]
 
     return MonteCarloResult(

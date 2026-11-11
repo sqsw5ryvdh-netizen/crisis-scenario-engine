@@ -5,6 +5,7 @@ import math
 import pytest
 
 from engine.config import load_config
+from engine.decisions import Choice
 from engine.model import panic_multiplier, simulate
 from engine.schema import NewsEvent, Parameter
 
@@ -20,7 +21,8 @@ def param(value: float, unit: str = "x") -> Parameter:
 
 
 def run(bank: str, scenario: str, overrides: dict | None = None, speed: float | None = None,
-        **scenario_updates):
+        ela_day: int | None = None, **scenario_updates):
+    """`ela_day`: ELA is granted without a cap and usable from that day (decided the day before)."""
     preset = CONFIG.scenarios[scenario]
     if overrides:
         merged = dict(preset.overrides)
@@ -29,7 +31,11 @@ def run(bank: str, scenario: str, overrides: dict | None = None, speed: float | 
     bank_config = CONFIG.banks[bank]
     if speed is not None:
         bank_config = bank_config.model_copy(update={"runoff_speed_factor": param(speed)})
-    return simulate(bank_config, CONFIG.model, preset.model_copy(update=scenario_updates))
+    choices = () if ela_day is None else (Choice("ela", "grant_full", ela_day - 1),)
+    return simulate(
+        bank_config, CONFIG.model, preset.model_copy(update=scenario_updates),
+        CONFIG.decisions, choices,
+    )
 
 
 def severity(value: float) -> Parameter:
@@ -146,7 +152,7 @@ def test_ela_is_off_unless_granted(bank, scenario):
 
 @pytest.mark.parametrize("bank,scenario", PAIRS)
 def test_ela_keeps_the_balance_sheet_identity_and_no_negative_balances(bank, scenario):
-    table = run(bank, scenario, overrides={"ela_granted_from_day": 1}).table
+    table = run(bank, scenario, ela_day=2).table
     gap = table["total_assets"] - (table["total_liabilities"] + table["cet1"])
     assert gap.abs().max() < TOL
     columns = ["ela_funding", "funded_ela", "encumbered_illiquid", "cash", "illiquid_assets", "cet1"]
@@ -162,19 +168,19 @@ def test_ela_keeps_the_balance_sheet_identity_and_no_negative_balances(bank, sce
 
 def test_ela_delays_the_payments_default():
     without = run("universal", "fast_run")
-    granted = run("universal", "fast_run", overrides={"ela_granted_from_day": 1})
+    granted = run("universal", "fast_run", ela_day=2)
     assert granted.table["funded_ela"].sum() > 0
     assert without.failure_day is not None
     assert granted.failure_day is None or granted.failure_day > without.failure_day
 
 
 def test_ela_is_not_used_before_the_granted_day():
-    table = run("universal", "fast_run", overrides={"ela_granted_from_day": 4}).table
+    table = run("universal", "fast_run", ela_day=4).table
     assert table.loc[table["day"] < 4, "funded_ela"].abs().max() < TOL
 
 
 def test_ela_comes_after_ordinary_central_bank_funding_and_before_fire_sales():
-    table = run("universal", "fast_run", overrides={"ela_granted_from_day": 1}).table
+    table = run("universal", "fast_run", ela_day=2).table
     haircut = CONFIG.model.central_bank_haircut.value
     for _, row in table[table["funded_ela"] > TOL].iterrows():
         assert row["cash"] < 1e-6 and row["hqla_level1"] < 1e-6 and row["hqla_level2"] < 1e-6
@@ -196,17 +202,17 @@ def test_ela_stops_when_the_bank_is_no_longer_solvent():
     bank = CONFIG.banks["universal"]
     capital = bank.capital.model_copy(update={"capital_requirement_ratio": 0.5})
     weak = bank.model_copy(update={"capital": capital})
-    scenario = CONFIG.scenarios["fast_run"]
-    scenario = scenario.model_copy(update={"overrides": {"ela_granted_from_day": param(1)}})
-    table = simulate(weak, CONFIG.model, scenario).table
-    assert table["funded_ela"].abs().max() < TOL
+    choices = (Choice("ela", "grant_full", 0),)
+    result = simulate(weak, CONFIG.model, CONFIG.scenarios["fast_run"], CONFIG.decisions, choices)
+    assert [record.effect_day for record in result.decision_log] == [1]  # granted, but unusable
+    assert result.table["funded_ela"].abs().max() < TOL
 
 
 def test_usable_ela_counts_in_the_liquidity_buffer():
     without = run("universal", "fast_run").table
-    granted = run("universal", "fast_run", overrides={"ela_granted_from_day": 1}).table
-    assert granted["liquidity_buffer"].iloc[1] > without["liquidity_buffer"].iloc[1]
-    assert granted["liquidity_buffer"].iloc[0] == pytest.approx(without["liquidity_buffer"].iloc[0])
+    granted = run("universal", "fast_run", ela_day=2).table
+    assert granted["liquidity_buffer"].iloc[2] > without["liquidity_buffer"].iloc[2]
+    assert granted["liquidity_buffer"].iloc[1] == pytest.approx(without["liquidity_buffer"].iloc[1])
 
 
 # ------------------------------------------------- run-off speed factor
@@ -268,8 +274,9 @@ def test_slow_burn_loss_of_the_universal_bank_is_of_the_documented_order():
 
 
 def test_run_stops_when_capital_is_exhausted_and_cet1_never_goes_negative():
-    # With ELA the universal bank keeps finding liquidity until its capital is gone.
-    result = run("universal", "geopolitical", overrides={"ela_granted_from_day": 1})
+    # With ELA, and pressure that never eases, the universal bank keeps finding liquidity
+    # until its capital is gone.
+    result = run("universal", "geopolitical", ela_day=2, fade=None)
     table = result.table
     assert (table["cet1"] >= -TOL).all()
     assert result.failure_day is not None

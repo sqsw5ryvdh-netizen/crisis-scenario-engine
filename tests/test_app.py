@@ -62,9 +62,9 @@ def test_timeline_has_three_lines_and_all_trigger_markers():
     assert len(lines) == 3
     assert all(len(trace.x) == len(result.table) for trace in lines)
     labels = [annotation.text for annotation in fig.layout.annotations]
-    for kind, (label, _) in TRIGGERS.items():
+    for kind in ("recovery", "early_intervention", "likely_to_fail", "failure"):
         day = next(e.day for e in result.events if e.kind == kind)
-        assert f"{label}: day {day}" in labels
+        assert f"{TRIGGERS[kind][0]}: day {day}" in labels
     news = [trace for trace in fig.data if trace.name == "News"]
     assert len(news) == 1 and len(news[0].x) == 2
     assert tuple(fig.layout.xaxis.range) == (0, HORIZON)
@@ -101,7 +101,9 @@ def test_app_opens_on_the_demo_selection_with_selectors_sliders_and_timeline():
     assert not at.exception
     assert at.selectbox(key="bank").value == demo.DEMO_BANK
     assert at.selectbox(key="scenario").value == demo.DEMO_SCENARIO
-    assert [box.label for box in at.selectbox] == ["Bank archetype", "Trigger scenario"]
+    labels = [box.label for box in at.sidebar.selectbox]
+    assert labels[:3] == ["Bank archetype", "Trigger scenario", "Decision path"]
+    assert len(labels) == 3 + len(CONFIG.decisions.decisions)  # one option box per decision
     assert len(at.sidebar.slider) == 6
     assert [n.label for n in at.number_input] == ["Random seed"]
     assert [metric.label for metric in at.metric][:2] == ["Payments default", "Likely-to-fail flag"]
@@ -148,7 +150,7 @@ def test_every_bank_and_scenario_renders(tab):
         for scenario_key in CONFIG.scenarios:
             at.selectbox(key="bank").set_value(bank_key)
             at.selectbox(key="scenario").set_value(scenario_key)
-            at.run(timeout=30)
+            at.run(timeout=90)  # generous: the whole suite runs many app sessions in a row
             assert not at.exception, (bank_key, scenario_key)
 
 

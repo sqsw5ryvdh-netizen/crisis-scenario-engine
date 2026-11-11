@@ -124,12 +124,8 @@ fire_sale_daily_cap_share:
   source: ASSUMPTION
 
 # --- Emergency liquidity assistance (ELA) ---
-# Usable from this day on (0 = not granted) and only while CET1 is at or above the requirement.
-# Granting becomes a decision in SPEC_V2 phase B; until then it is off.
-ela_granted_from_day:
-  value: 0
-  unit: day (0 = not granted)
-  source: ASSUMPTION
+# Usable once granted (a decision, see config/decisions.yaml) and only while CET1 is at or
+# above the requirement.
 ela_haircut:
   value: 0.50
   unit: share

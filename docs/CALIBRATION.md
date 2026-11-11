@@ -331,3 +331,16 @@ Three inputs changed after the comparison above was first written. None of them 
   decay of zero the model behaves as before.
 
 Outcome of the 16 bank and scenario pairs after these changes: `docs/STATUS.md`.
+
+## 9. Changes in SPEC_V2 phase B
+
+- **Scenario pressure that fades**, in `config/scenarios.yaml`. With a constant severity no
+  combination of decisions could keep a bank alive, because deposits kept leaving at the
+  scenario's pace however calm depositors became. The cyber outage now eases from day 7 and
+  the geopolitical shock from day 10, towards a severity of 0.5, halving the distance every 4
+  and 3 days. These six values are `ASSUMPTION`. They were chosen so that the runs without
+  decisions are unchanged (same stage days and default days as after phase A), not from
+  any data.
+- **Decision effects**, in `config/decisions.yaml`: the size of a statement's effect, the
+  share, discount and settlement time of a portfolio sale, the ELA cap and the payout times
+  are all `ASSUMPTION`. The two-day moratorium length comes from `docs/SPEC_V2.md`.

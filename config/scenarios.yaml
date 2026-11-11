@@ -2,6 +2,8 @@
 # severity multiplies every deposit category's base run-off rate (1.0 = baseline).
 # panic_shock is added to x in the panic multiplier from the event day onwards.
 # overrides replace parameters of model.yaml for this scenario only.
+# fade (optional): from from_day on, severity moves towards floor, halving the distance every
+# half_life_days. Without it the severity stays constant for the whole horizon.
 
 fast_run:
   name: Fast digital run
@@ -51,6 +53,21 @@ cyber_outage:
     high: 3.2
     unit: multiplier
     source: ASSUMPTION
+  # The pressure eases once service has been back for a few days.
+  # Values chosen so that the run without decisions is unchanged; all ASSUMPTION.
+  fade:
+    from_day:
+      value: 7
+      unit: day
+      source: ASSUMPTION
+    half_life_days:
+      value: 4
+      unit: days
+      source: ASSUMPTION
+    floor:
+      value: 0.5
+      unit: multiplier
+      source: ASSUMPTION
   overrides:
     payment_outage_start_day:
       value: 1
@@ -80,6 +97,21 @@ geopolitical:
     high: 2.4
     unit: multiplier
     source: ASSUMPTION
+  # The pressure eases once markets have absorbed the shock.
+  # Values chosen so that the run without decisions is unchanged; all ASSUMPTION.
+  fade:
+    from_day:
+      value: 10
+      unit: day
+      source: ASSUMPTION
+    half_life_days:
+      value: 3
+      unit: days
+      source: ASSUMPTION
+    floor:
+      value: 0.5
+      unit: multiplier
+      source: ASSUMPTION
   overrides:
     wholesale_rollover_cap:
       value: 0.0

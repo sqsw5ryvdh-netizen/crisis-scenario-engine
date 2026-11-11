@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
+from engine.decisions import OUTCOME_LABELS, OUTCOME_SURVIVES
 from engine.model import SimulationResult, uninsured_share
 from engine.schema import ACTORS, INJECT_EVENTS, Bank, InjectsConfig, ModelParams, Scenario
 
@@ -107,6 +108,7 @@ def _context(
         "funding_need_days": str(need.days) if need else "n/a",
         "failure_day": str(result.failure_day) if result.failure_day is not None else "none",
         "horizon_days": str(horizon),
+        "outcome": OUTCOME_LABELS[result.outcome].lower(),
     }
 
 
@@ -147,7 +149,7 @@ def _key_events(
         used = result.table[result.table[column] > _TINY]
         if not used.empty:
             add(int(used["day"].iloc[0]), kind)
-    if result.failure_day is None:
+    if result.outcome == OUTCOME_SURVIVES:
         add(last_day, "end_no_failure")
 
     for events in found.values():
@@ -220,9 +222,12 @@ def build_script(
         key_days.append(KeyDay(day=day, figures=_figures(base), events=tuple(key_events)))
 
     final = _context(rows[last_day], bank, scenario, result, horizon)
-    summary = templates.summary.failure if result.failure_day is not None else (
-        templates.summary.no_failure
-    )
+    if result.failure_day is not None:
+        summary = templates.summary.failure
+    elif result.outcome == OUTCOME_SURVIVES:
+        summary = templates.summary.no_failure
+    else:
+        summary = templates.summary.resolved
     return ExerciseScript(
         bank_name=bank.name,
         scenario_name=scenario.name,

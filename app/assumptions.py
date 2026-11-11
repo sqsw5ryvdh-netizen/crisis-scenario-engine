@@ -43,6 +43,11 @@ def scenario_table(config: Config) -> pd.DataFrame:
             (f"override: {name}", param, name in SAMPLED_PARAMETERS)
             for name, param in scenario.overrides.items()
         ]
+        if scenario.fade is not None:
+            entries += [
+                (f"fade: {name}", getattr(scenario.fade, name), False)
+                for name in type(scenario.fade).model_fields
+            ]
         for name, param, sampled in entries:
             rows.append({"Scenario": scenario.name, **_row(name, param, sampled)})
         for event in scenario.news_events:
@@ -113,6 +118,25 @@ def bank_table(config: Config) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def decision_table(config: Config) -> pd.DataFrame:
+    """Every number of config/decisions.yaml: timing rule and the effect of each option."""
+    decisions = config.decisions
+    rows = [
+        {"Decision": "(all decisions)", **_row("lead_days", decisions.lead_days, False)},
+        {
+            "Decision": "Payout of covered deposits",
+            **_row("payout_days_unprepared", decisions.payout_days_unprepared, False),
+        },
+    ]
+    for decision in decisions.decisions.values():
+        for option in decision.options.values():
+            for name, param in option.params.items():
+                rows.append(
+                    {"Decision": decision.name, **_row(f"{option.name}: {name}", param, False)}
+                )
+    return pd.DataFrame(rows, columns=["Decision"] + COLUMNS)
 
 
 def assumption_counts(*tables: pd.DataFrame) -> tuple[int, int]:

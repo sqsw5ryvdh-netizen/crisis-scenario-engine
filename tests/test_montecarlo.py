@@ -5,7 +5,14 @@ import numpy as np
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from app.assumptions import FLAG, assumption_counts, bank_table, model_table, scenario_table
+from app.assumptions import (
+    FLAG,
+    assumption_counts,
+    bank_table,
+    decision_table,
+    model_table,
+    scenario_table,
+)
 from app.charts import build_failure_distribution, build_timeline
 from engine.config import load_config
 from engine.model import simulate
@@ -191,9 +198,17 @@ def test_assumptions_tables_list_every_parameter():
     scenarios = scenario_table(CONFIG)
     for scenario in CONFIG.scenarios.values():
         rows = scenarios[scenarios["Scenario"] == scenario.name]
-        assert len(rows) == 1 + len(scenario.overrides) + len(scenario.news_events)
+        fade_rows = 3 if scenario.fade is not None else 0
+        assert len(rows) == 1 + len(scenario.overrides) + len(scenario.news_events) + fade_rows
     banks = bank_table(CONFIG)
     assert set(banks["Bank"]) == {bank.name for bank in CONFIG.banks.values()}
+    decisions = decision_table(CONFIG)
+    expected = 2 + sum(
+        len(option.params)
+        for decision in CONFIG.decisions.decisions.values()
+        for option in decision.options.values()
+    )
+    assert len(decisions) == expected and (decisions["Status"] != "").all()
 
 
 def test_assumptions_are_flagged_and_counted():
@@ -208,7 +223,7 @@ def test_assumptions_are_flagged_and_counted():
 def test_assumptions_page_renders():
     at = AppTest.from_file(str(ROOT / "app" / "views" / "assumptions.py")).run(timeout=30)
     assert not at.exception
-    assert len(at.dataframe) == 3
+    assert len(at.dataframe) == 4
     assert "ASSUMPTION" in at.warning[0].value
 
 

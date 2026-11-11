@@ -2,6 +2,7 @@
 
 import time
 
+import pandas as pd
 import streamlit as st
 from streamlit.errors import StreamlitAPIException
 
@@ -10,10 +11,18 @@ from app.charts import (
     TRIGGERS,
     build_contagion_chart,
     build_failure_distribution,
+    build_path_comparison,
     build_timeline,
 )
 from engine.config import load_config
 from engine.contagion import similarity_factor, simulate_contagion
+from engine.decisions import (
+    OUTCOME_LABELS,
+    Choice,
+    choices_of,
+    decision_log_rows,
+    scorecard_rows,
+)
 from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx
 from engine.injects import build_script
 from engine.model import simulate, uninsured_share, with_uninsured_share
@@ -71,6 +80,58 @@ def _status_label(status: str) -> str:
 @st.cache_resource
 def get_config():
     return load_config()
+
+
+# ------------------------------------------------- decisions
+
+
+def _load_path() -> None:
+    """Set every decision widget to the options and days of the chosen named path."""
+    catalogue = get_config().decisions
+    chosen = {c.decision: c for c in catalogue.paths[st.session_state["decision_path"]].choices}
+    for key, decision in catalogue.decisions.items():
+        choice = chosen.get(key)
+        st.session_state[f"dec:{key}:option"] = choice.option if choice else decision.default_option
+        if choice:
+            st.session_state[f"dec:{key}:day"] = choice.day
+
+
+def decision_panel(catalogue, horizon: int) -> tuple[Choice, ...]:
+    """Sidebar panel: one option per decision, and the day from which it may be taken."""
+    st.selectbox(
+        "Decision path",
+        list(catalogue.paths),
+        format_func=lambda k: catalogue.paths[k].name,
+        key="decision_path",
+        on_change=_load_path,
+        help="A ready-made set of decisions. Change single decisions below.",
+    )
+    choices = []
+    with st.expander("Decisions"):
+        st.caption(
+            "A decision is taken after the close of a day and is in effect the next day. "
+            "If its condition is not met yet, it is taken as soon as it is."
+        )
+        for key, decision in catalogue.decisions.items():
+            actor = decision.actor.replace("_", " ").capitalize()
+            option = st.selectbox(
+                f"{actor}: {decision.name}",
+                list(decision.options),
+                index=list(decision.options).index(decision.default_option),
+                format_func=lambda k, options=decision.options: options[k].name,
+                key=f"dec:{key}:option",
+            )
+            if option != decision.default_option:
+                day = st.number_input(
+                    f"{decision.name}: decide from the close of day",
+                    min_value=0,
+                    max_value=horizon,
+                    value=1,
+                    step=1,
+                    key=f"dec:{key}:day",
+                )
+                choices.append(Choice(key, option, int(day)))
+    return tuple(choices)
 
 
 # ------------------------------------------------- guided demo
@@ -170,7 +231,7 @@ def timeline_view(result, horizon, unit, band_data, n_runs) -> None:
         if not events:
             st.caption("Nothing yet.")
         for event in events:
-            label = TRIGGERS[event.kind][0] if event.kind in TRIGGERS else "News"
+            label = TRIGGERS[event.kind][0] if event.kind in TRIGGERS else event.kind.capitalize()
             st.markdown(f"- Day {event.day}, {label}: {event.detail}")
 
     if st.session_state.get("play_next") is not None:
@@ -256,6 +317,9 @@ with st.sidebar:
         # The slider sets the central value; the uncertainty range moves with it.
         overrides[name] = recentre(name, current, shown / factor)
 
+    st.header("Decisions")
+    choices = decision_panel(config.decisions, int(config.model.horizon_days.value))
+
     st.header("Uncertainty")
     n_runs = int(config.model.monte_carlo_runs.value)
     seed = st.number_input(
@@ -267,7 +331,7 @@ with st.sidebar:
     )
 
 # When any input changes, playback stops and the timeline shows the whole new run.
-signature = (prefix, severity, share_pct, *shown_values)
+signature = (prefix, severity, share_pct, *shown_values, choices)
 if st.session_state.get("run_signature") != signature:
     st.session_state["run_signature"] = signature
     st.session_state["play_next"] = None
@@ -295,14 +359,16 @@ scenario = scenario.model_copy(
         "overrides": overrides,
     }
 )
-result = simulate(bank, config.model, scenario)
-reference = simulate(start_bank, config.model, start_scenario)
+result = simulate(bank, config.model, scenario, config.decisions, choices)
+reference = simulate(start_bank, config.model, start_scenario, config.decisions, choices)
 table = result.table
 horizon = int(config.model.horizon_days.value)
 # The runs are kept while the inputs stay the same, so playback and tab changes are instant.
 runs_key = (signature, n_runs, int(seed))
 if st.session_state.get("runs_key") != runs_key:
-    st.session_state["runs"] = run_monte_carlo(bank, config.model, scenario, n_runs, int(seed))
+    st.session_state["runs"] = run_monte_carlo(
+        bank, config.model, scenario, n_runs, int(seed), config.decisions, choices
+    )
     st.session_state["runs_key"] = runs_key
 monte_carlo = st.session_state["runs"]
 uncertainty = summarise(monte_carlo)
@@ -314,10 +380,20 @@ flag.metric(
     help="First day on which liquidity covers too few days of outflows, or capital is "
     "projected below the requirement. A warning by the model; the run continues.",
 )
+if result.failure_day is not None:
+    default_text = f"Day {result.failure_day}"
+elif result.outcome == "survives":
+    default_text = f"None in {horizon} days"
+else:
+    default_text = "Avoided"
+if result.failure_day is None and result.outcome != "survives":
+    default_note = f"{OUTCOME_LABELS[result.outcome]} on day {result.end_day}"
+else:
+    default_note = demo.describe_shift(result.failure_day, reference.failure_day)
 failure.metric(
     "Payments default",
-    f"Day {result.failure_day}" if result.failure_day is not None else f"None in {horizon} days",
-    delta=demo.describe_shift(result.failure_day, reference.failure_day),
+    default_text,
+    delta=default_note,
     delta_color="off",
     delta_arrow="off",
     help="Central run. The line below compares it with the bank and scenario as first shown, "
@@ -344,9 +420,14 @@ st.caption(
 )
 
 # on_change="rerun" makes the tabs lazy: only the open tab is computed.
-timeline_tab, funding_tab, uncertainty_tab, script_tab, contagion_tab = st.tabs(
-    demo.TABS, key="view", on_change="rerun"
-)
+(
+    timeline_tab,
+    decisions_tab,
+    funding_tab,
+    uncertainty_tab,
+    script_tab,
+    contagion_tab,
+) = st.tabs(demo.TABS, key="view", on_change="rerun")
 
 if not timeline_tab.open:
     st.session_state["play_next"] = None
@@ -354,6 +435,57 @@ if not timeline_tab.open:
 if timeline_tab.open:
     with timeline_tab:
         timeline_view(result, horizon, bank.unit, bands(monte_carlo), n_runs)
+
+if decisions_tab.open:
+    with decisions_tab:
+        paths = config.decisions.paths
+        st.subheader("Decision paths compared")
+        st.caption(
+            "Same bank, scenario and parameters; only the decisions differ. The selected path "
+            "is the one set in the sidebar. Decision effects are assumptions."
+        )
+        reference_key = st.selectbox(
+            "Compare the selected path with",
+            list(paths),
+            index=list(paths).index(config.decisions.default_path),
+            format_func=lambda k: paths[k].name,
+            key="reference_path",
+        )
+        other = simulate(
+            bank, config.model, scenario, config.decisions, choices_of(paths[reference_key])
+        )
+        other_name = paths[reference_key].name
+        st.plotly_chart(
+            build_path_comparison(other, result, other_name, "Selected path", horizon, bank.unit),
+            width="stretch",
+        )
+        st.subheader("Outcome scorecard")
+        left = scorecard_rows(other.scorecard, bank.unit)
+        right = scorecard_rows(result.scorecard, bank.unit)
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Figure": [label for label, _ in left],
+                    other_name: [value for _, value in left],
+                    "Selected path": [value for _, value in right],
+                }
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+        st.caption(
+            "Covered deposits are the insured retail deposits. Bail-in and sale of business "
+            "are outcome labels only until the liability stack is added."
+        )
+        st.subheader("Decision log of the selected path")
+        if result.decision_log:
+            st.dataframe(
+                pd.DataFrame(decision_log_rows(result.decision_log, bank.unit)),
+                hide_index=True,
+                width="stretch",
+            )
+        else:
+            st.info("No decision is taken on the selected path: the authorities act late.")
 
 if funding_tab.open:
     with funding_tab:

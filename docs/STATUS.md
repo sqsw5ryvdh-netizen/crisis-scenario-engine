@@ -1,40 +1,40 @@
 # STATUS
 
-Last completed: **SPEC_V2 phase A - Model realism** (2026-11-11). M0-M6 of docs/SPEC.md are done. Next: phase B (not started).
+Last completed: **SPEC_V2 phase B - Decision points** (2026-11-11). Done before: M0-M6 (docs/SPEC.md), phase A. Next by agreement: phase D, then C and E.
 
-## What was built in phase A
-- **Panic can fall.** The panic input is a fading memory (`panic_decay`, 15% per day); news shocks can be negative (reassuring events). No preset uses a negative shock yet.
-- **Two failure concepts.** A forward-looking "likely to fail" flag (liquidity covers fewer than 3 days of the current outflow, or CET1 projected below requirement within 3 days) and the payments default, which ends the run. A capital breach alone no longer ends it.
-- **Capital exhausted.** Sales at a loss stop when CET1 would go below zero; the run ends that day.
-- **ELA.** A second central bank facility: loan book as extra collateral, higher haircut, only while CET1 is at or above the requirement. Off by default (`ela_granted_from_day: 0`) until phase B makes it a decision.
-- **Digital archetype rebuilt** with thin liquid assets and a per-archetype run-off speed factor of 1.5 (1.0 for the others).
-- **Slow-burn severity** 1.0 -> 0.3, recorded in docs/CALIBRATION.md section 8 as an order-of-magnitude check.
-- App: fourth stage marker, "Likely-to-fail flag" metric, ELA column, "payments default" wording. One new script template. `tests/`: 494 tests.
+## What was built in phase B
+- `config/decisions.yaml`: nine decisions for the five actors, each with an enabling condition, options and an effect; six named paths. Effects are a fixed list in the engine (panic shock, portfolio sale, ELA with cap, forced recovery option, FOLTF, moratorium, resolution tool, payout preparation, payout).
+- `simulate()` takes a decision set. Timing rule: a decision is taken after the close of a day and is in effect the next day; if its condition is not met, it is taken as soon as it is.
+- A run now ends at the payments default or on the day a resolution tool is applied. Results carry an outcome, a decision log (actor, day decided, day in effect, the actor's figures that day) and an outcome scorecard.
+- Scenario pressure can fade (`fade` in `config/scenarios.yaml`), set for the cyber outage and the geopolitical shock.
+- App: decision panel in the sidebar; Decisions tab with path comparison chart, side-by-side scorecard and decision log; decisions table on the Assumptions page. CLI: `--path`.
+- `tests/`: 687 tests.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | CLI: `.venv/bin/python -m engine.run --bank digital --scenario fast_run`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q`
+- CLI: `.venv/bin/python -m engine.run --bank universal --scenario fast_run --path early_foltf`
 
-## Acceptance output (phase A)
-Day of recovery / early intervention / likely-to-fail flag / payments default, and deposit loss at the end:
+## Acceptance output (phase B)
+Universal bank, fast run:
 
-| Bank | Fast run | Slow burn | Cyber outage | Geopolitical |
+| Path | Outcome | Deposits lost | ELA outstanding | Losses booked |
 |---|---|---|---|---|
-| Universal | 1/1/1/4, 56.7% | 7/30/-/-, 25.3% | 1/4/4/7, 58.5% | 2/3/3/9, 57.3% |
-| Retail | 1/1/1/4, 40.0% | 12/-/-/-, 13.9% | 2/4/4/7, 41.9% | 2/5/6/10, 41.7% |
-| Digital | 1/1/1/2, 28.8% | 9/26/-/-, 19.3% | 1/4/4/4, 35.6% | 2/3/3/6, 33.6% |
-| Specialised | 1/1/1/4, 62.0% | 7/-/-/-, 31.0% | 1/4/4/6, 63.1% | 2/3/3/8, 61.5% |
+| ELA refused | payments default, day 4 | 56.7% | 0 | 9.2 |
+| ELA granted | payments default, day 9 | 75.0% | 94.6 | 15.6 |
+| Early FOLTF, 2-day moratorium, bail-in | resolution, day 4 | 15.2% | 0 | 0 |
+| Same with liquidation | liquidation, day 4, DGS payout 214.1 in 5 days | 15.2% | 0 | 0 |
 
-- 4 pairs survive 30 days with neither flag nor default (the slow burn); the digital bank defaults first in the fast run.
-- `pytest -q` -> `494 passed`, including the four domain checks of CLAUDE.md. App checked in the browser on two pairs.
-- ELA demonstration (universal, fast run, ELA from day 1): default moves from day 4 to day 9, 94.6 bn drawn.
+Less severe scenario (universal bank, cyber outage): without decisions, default on day 7. With ELA alone, no default but CET1 ends at 10.8%, below the 11.0% requirement. With statement + portfolio sale + ELA, no default in 30 days and CET1 never below 12.8%; it loses 74.3% of deposits and ends with no liquidity buffer. Same pattern for the retail bank in the geopolitical shock (default day 10; package: CET1 15.1%, 52.3% lost).
+- `pytest -q` -> `687 passed`. The default path reproduces the phase A table exactly. App checked in the browser.
 
 ## Deviations and choices (approved 2026-11-11)
-- "Survive" means neither flag nor default. "Solvent" for ELA means CET1 ratio at or above the requirement.
-- In the code the payments default keeps the name `failure` / `failed`; only the labels changed.
-- The likely-to-fail flag is not required to come earlier with higher severity; only the default day is. The exercise script got one new template only; phase D rewrites it.
+- Pressure fade added after no combination of decisions could save a bank with constant severity. Its values were chosen so that runs without decisions are unchanged; they are ASSUMPTION.
+- Bail-in and sale of business are outcome labels only until phase C adds the liability stack.
+- "Survives to weekend" is shown as the default moving from day 4 to day 9: there is no calendar before phase C.
+- Every actor sees the same day's figures in the decision log; lags and scopes come with phase D.
+- Identity and no-negative-balance checks hold on every path; "higher severity never defaults later" is required on the default path only.
 
 ## Open questions
-- Fast runs raise recovery, early intervention and the flag all on day 1 for three banks.
-- A 500-run pass on a 30-day run takes about 1.0 s (0.45 s before), slightly over the 1 s slider target of M2.
-- The demo opens on a two-day crisis; raising uninsured deposits no longer moves the default day. With more uninsured deposits a bank can default a day later (earlier recovery trigger mobilises central bank funding earlier). This predates phase A.
-- Every parameter added in phase A is ASSUMPTION. The screenshots in docs/screenshots/ predate phase A; to be redone at the end of V2.
+- A rescued bank still loses half to three quarters of its deposits and ends with no liquidity buffer; the flag is raised in every rescue.
+- In the fast run a public statement or an early intervention measure cannot change the outcome. The exported script does not mention decisions yet (phase D). The contagion tab ignores decisions (phase F replaces it).
+- A 500-run pass on a 30-day run takes about 1 s. Every decision effect and timing value is ASSUMPTION. Screenshots in docs/screenshots/ predate phases A and B.

@@ -20,9 +20,19 @@ TRIGGERS = {
     "early_intervention": ("Early intervention", "#ec835a"),
     "likely_to_fail": ("Likely to fail", "#d03b3b"),
     "failure": ("Payments default", "#8f1d2c"),
+    # Actions by the authorities, in a neutral colour: they are not stages of distress.
+    "foltf": ("FOLTF declared", "#52514e"),
+    "resolution": ("Run ends", "#52514e"),
 }
 # Vertical position of each trigger label (paper coordinates), staggered to avoid overlap.
-_LABEL_Y = {"recovery": 1.05, "early_intervention": 1.09, "likely_to_fail": 1.13, "failure": 1.17}
+_LABEL_Y = {
+    "recovery": 1.05,
+    "early_intervention": 1.09,
+    "likely_to_fail": 1.13,
+    "failure": 1.17,
+    "foltf": 1.17,
+    "resolution": 1.21,
+}
 
 
 def build_timeline(
@@ -132,9 +142,9 @@ def build_timeline(
     fig.update_xaxes(range=[0, horizon], dtick=5)
     fig.update_xaxes(title_text="Day", row=len(panels), col=1)
     fig.update_layout(
-        height=600,
+        height=620,
         showlegend=False,
-        margin=dict(l=10, r=10, t=110, b=10),
+        margin=dict(l=10, r=10, t=130, b=10),
         hovermode="x unified",
     )
     return fig
@@ -233,5 +243,73 @@ def build_contagion_chart(contagion: ContagionResult, horizon: int) -> go.Figure
         margin=dict(l=10, r=10, t=110, b=10),
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="top", y=-0.15, x=0),
+    )
+    return fig
+
+
+def build_path_comparison(
+    reference: SimulationResult,
+    selected: SimulationResult,
+    reference_name: str,
+    selected_name: str,
+    horizon: int,
+    unit: str,
+) -> go.Figure:
+    """Two decision paths of the same bank and scenario on the same axes."""
+    panels = [
+        (f"Liquidity buffer ({unit})", "liquidity_buffer", 1.0, "%{y:.2f}"),
+        (f"Deposits ({unit})", "deposits_total", 1.0, "%{y:.2f}"),
+        ("CET1 ratio (%)", "cet1_ratio", 100.0, "%{y:.1f}%"),
+    ]
+    runs = [
+        (reference_name, reference.table, dict(color=NEWS_COLOR, width=2, dash="dot")),
+        (selected_name, selected.table, dict(color=LINE_COLOR, width=2)),
+    ]
+    fig = make_subplots(
+        rows=len(panels),
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=[title for title, _, _, _ in panels],
+    )
+    for row, (_, column, factor, value_format) in enumerate(panels, start=1):
+        for name, table, line in runs:
+            fig.add_trace(
+                go.Scatter(
+                    x=table["day"],
+                    y=table[column] * factor,
+                    mode="lines",
+                    name=name,
+                    legendgroup=name,
+                    showlegend=row == 1,
+                    line=line,
+                    hovertemplate=name + ", day %{x}: " + value_format + "<extra></extra>",
+                ),
+                row=row,
+                col=1,
+            )
+            # The last day of each path, so that a path that stops early is easy to see.
+            fig.add_trace(
+                go.Scatter(
+                    x=[table["day"].iloc[-1]],
+                    y=[table[column].iloc[-1] * factor],
+                    mode="markers",
+                    name=f"{name}: last day",
+                    legendgroup=name,
+                    showlegend=False,
+                    marker=dict(size=9, color=line["color"], line=dict(color="#ffffff", width=2)),
+                    hovertemplate=name + " ends on day %{x}<extra></extra>",
+                ),
+                row=row,
+                col=1,
+            )
+        fig.update_yaxes(rangemode="tozero", row=row, col=1)
+    fig.update_xaxes(range=[0, horizon], dtick=5)
+    fig.update_xaxes(title_text="Day", row=len(panels), col=1)
+    fig.update_layout(
+        height=600,
+        margin=dict(l=10, r=10, t=40, b=10),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="top", y=-0.12, x=0),
     )
     return fig

@@ -25,11 +25,12 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_config(config_dir: Path | str = DEFAULT_CONFIG_DIR) -> Config:
-    """Load banks.yaml, model.yaml, scenarios.yaml and injects.yaml and validate them."""
+    """Load the five YAML files of the config directory and validate them."""
     config_dir = Path(config_dir)
     return Config(
         banks=_read_yaml(config_dir / "banks.yaml"),
         model=_read_yaml(config_dir / "model.yaml"),
         scenarios=_read_yaml(config_dir / "scenarios.yaml"),
         injects=_read_yaml(config_dir / "injects.yaml"),
+        decisions=_read_yaml(config_dir / "decisions.yaml"),
     )

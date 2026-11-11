@@ -27,6 +27,7 @@ Accounting conventions:
 - ELA is a new liability against what is left of the eligible collateral, then against a
   share of the loan book; pledged loans cannot be sold.
 - An archetype's run-off speed factor multiplies the scenario severity.
+- A scenario may let its severity fade towards a floor once its trigger is over.
 - Payment outage: withdrawals and maturing wholesale funding are queued, nothing is
   paid, and the whole queue is due on the first day after the outage.
 - Equity is represented by CET1.
@@ -36,11 +37,20 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from typing import Optional
+from typing import Optional, Sequence
 
 import pandas as pd
 
-from engine.schema import Bank, ModelParams, Scenario
+from engine.decisions import (
+    OUTCOME_DEFAULT,
+    OUTCOME_LIQUIDATION,
+    OUTCOME_SURVIVES,
+    Choice,
+    DecisionRecord,
+    Scorecard,
+    actor_label,
+)
+from engine.schema import Bank, DecisionCondition, DecisionsConfig, ModelParams, Scenario
 
 DEPOSIT_CATEGORIES = ("insured_retail", "uninsured_retail", "corporate", "financial")
 EPS = 1e-9
@@ -82,6 +92,8 @@ class BankState:
     # Emergency liquidity assistance drawn, and the loans pledged for it.
     ela_funding: float = 0.0
     encumbered_illiquid: float = 0.0
+    # Loans sold through a recovery option (a record; they do not use fire-sale capacity).
+    portfolio_sold: float = 0.0
 
     @property
     def total_deposits(self) -> float:
@@ -132,7 +144,9 @@ class Funding:
 @dataclass(frozen=True)
 class Event:
     day: int
-    kind: str  # news | recovery | early_intervention | likely_to_fail | failure
+    # news | recovery | early_intervention | likely_to_fail | failure | decision | foltf |
+    # resolution
+    kind: str
     detail: str
 
 
@@ -153,6 +167,11 @@ class SimulationResult:
     failure_day: Optional[int]  # day of the payments default
     funding_need: Optional[FundingNeed]
     likely_to_fail_day: Optional[int] = None  # day the forward-looking flag is raised
+    outcome: str = OUTCOME_SURVIVES  # survives | payments_default | a resolution tool
+    end_day: int = 0  # last simulated day
+    foltf_day: Optional[int] = None  # day the FOLTF declaration is in effect
+    decision_log: tuple[DecisionRecord, ...] = ()
+    scorecard: Optional[Scorecard] = None
 
 
 # --------------------------------------------------------------------------- state
@@ -270,15 +289,41 @@ def _pledgeable_loans(state: BankState, p: ModelParams) -> float:
     return max(0.0, eligible - state.encumbered_illiquid)
 
 
+def sell_portfolio(
+    state: BankState, amount: float, discount: float
+) -> tuple[BankState, float, float]:
+    """Recovery option: sell up to `amount` of unpledged loans. Returns (state, cash, loss)."""
+    available = max(0.0, state.illiquid_assets - state.encumbered_illiquid)
+    sold, proceeds, loss = _sell(
+        min(amount, available), math.inf, discount, max(0.0, state.cet1)
+    )
+    if sold <= 0:
+        return state, 0.0, 0.0
+    illiquid_after = max(0.0, state.illiquid_assets - sold)
+    new_state = replace(
+        state,
+        cash=state.cash + proceeds,
+        illiquid_assets=illiquid_after,
+        portfolio_sold=state.portfolio_sold + sold,
+        cet1=max(0.0, state.cet1 - loss),
+        rwa=state.rwa * illiquid_after / state.illiquid_assets,
+    )
+    return new_state, proceeds, loss
+
+
 def fund_outflow(
     state: BankState,
     need: float,
     central_bank_usable: bool,
     fire_sale_cap: float,
     p: ModelParams,
-    ela_usable: bool = False,
+    ela_headroom: float = 0.0,
 ) -> tuple[BankState, Funding]:
-    """Fund `need` in the waterfall order. Deposits and wholesale funding are not touched."""
+    """Fund `need` in the waterfall order. Deposits and wholesale funding are not touched.
+
+    `ela_headroom` is how much more ELA may be drawn: 0 if ELA is not usable, infinite if
+    it is granted without a cap.
+    """
     remaining = need
 
     from_cash = min(remaining, state.cash)
@@ -305,12 +350,16 @@ def fund_outflow(
     # ELA: first what is left of the eligible collateral, then pledgeable loans.
     ela_haircut = p.ela_haircut.value
     ela_from_collateral = ela_from_loans = 0.0
-    if ela_usable:
+    if ela_headroom > 0:
         encumbered_after_cb = state.encumbered_collateral + from_cb / (1.0 - cb_haircut)
         free_collateral = max(0.0, state.eligible_collateral - encumbered_after_cb)
-        ela_from_collateral = min(remaining, free_collateral * (1.0 - ela_haircut))
+        ela_from_collateral = min(remaining, free_collateral * (1.0 - ela_haircut), ela_headroom)
         remaining -= ela_from_collateral
-        ela_from_loans = min(remaining, _pledgeable_loans(state, p) * (1.0 - ela_haircut))
+        ela_from_loans = min(
+            remaining,
+            _pledgeable_loans(state, p) * (1.0 - ela_haircut),
+            ela_headroom - ela_from_collateral,
+        )
         remaining -= ela_from_loans
     from_ela = ela_from_collateral + ela_from_loans
     encumbered_illiquid = state.encumbered_illiquid + ela_from_loans / (1.0 - ela_haircut)
@@ -375,23 +424,35 @@ def central_bank_capacity(state: BankState, p: ModelParams) -> float:
     return max(0.0, free * (1.0 - p.central_bank_haircut.value))
 
 
-def ela_capacity(state: BankState, central_bank_usable: bool, p: ModelParams) -> float:
-    """What ELA could still lend. Free eligible collateral counts only if ordinary
-    central bank operations are not usable, because they would take it first."""
+def ela_capacity(
+    state: BankState, central_bank_usable: bool, p: ModelParams, ela_headroom: float
+) -> float:
+    """What ELA could still lend, within its headroom. Free eligible collateral counts only
+    if ordinary central bank operations are not usable, because they would take it first."""
     collateral = 0.0 if central_bank_usable else state.eligible_collateral - state.encumbered_collateral
-    return max(0.0, collateral + _pledgeable_loans(state, p)) * (1.0 - p.ela_haircut.value)
+    by_collateral = max(0.0, collateral + _pledgeable_loans(state, p)) * (1.0 - p.ela_haircut.value)
+    return max(0.0, min(by_collateral, ela_headroom))
 
 
 def liquidity_buffer(
-    state: BankState, central_bank_usable: bool, p: ModelParams, ela_usable: bool = False
+    state: BankState, central_bank_usable: bool, p: ModelParams, ela_headroom: float = 0.0
 ) -> float:
     """Cash + HQLA after haircuts + central bank capacity already mobilised + usable ELA."""
     buffer = hqla_buffer(state, p)
     if central_bank_usable:
         buffer += central_bank_capacity(state, p)
-    if ela_usable:
-        buffer += ela_capacity(state, central_bank_usable, p)
+    if ela_headroom > 0:
+        buffer += ela_capacity(state, central_bank_usable, p, ela_headroom)
     return buffer
+
+
+def ela_headroom_of(
+    state: BankState, day: int, ela_from: Optional[int], ela_cap: float, requirement: float
+) -> float:
+    """ELA still drawable on `day`: none before the grant or once the bank is not solvent."""
+    if ela_from is None or day < ela_from or not is_solvent(state, requirement):
+        return 0.0
+    return max(0.0, ela_cap - state.ela_funding)
 
 
 def is_solvent(state: BankState, requirement: float) -> bool:
@@ -436,7 +497,7 @@ def _pay(
     rollover: float,
     remaining_ladder: tuple[tuple[int, float], ...],
     central_bank_usable: bool,
-    ela_usable: bool,
+    ela_headroom: float,
     fire_sale_cap: float,
     p: ModelParams,
 ) -> tuple[BankState, Funding, float, float]:
@@ -447,7 +508,9 @@ def _pay(
     wholesale_outflow = wholesale_due * (1.0 - rollover)
     outflow_deposits = sum(deposit_outflows)
     need = outflow_deposits + wholesale_outflow
-    state, funding = fund_outflow(state, need, central_bank_usable, fire_sale_cap, p, ela_usable)
+    state, funding = fund_outflow(
+        state, need, central_bank_usable, fire_sale_cap, p, ela_headroom
+    )
     # Only the part that was actually paid leaves.
     paid_share = (need - funding.unmet) / need if need > EPS else 1.0
     state = replace(
@@ -473,6 +536,7 @@ def projected_cet1_ratio(
     days: int,
     central_bank_from: Optional[int],
     ela_from: Optional[int],
+    ela_cap: float,
     requirement: float,
     fire_sale_daily_capacity: float,
     initial_illiquid: float,
@@ -481,7 +545,8 @@ def projected_cet1_ratio(
     """Lowest CET1 ratio over the next `days` days with panic frozen at its current level.
 
     The projected outflows go through the same funding waterfall, so the losses on asset
-    sales are counted. A payment outage is ignored: queued withdrawals are assumed paid.
+    sales are counted. A payment outage or moratorium is ignored: queued withdrawals are
+    assumed paid.
     """
     lowest = state.cet1 / state.rwa if state.rwa > EPS else math.inf
     # Shortcut: if cash alone covers the projected outflows, nothing is sold and no loss
@@ -498,12 +563,12 @@ def projected_cet1_ratio(
         )
         due = sum(a for d, a in state.wholesale_ladder if d == ahead) + state.wholesale_overdue
         remaining_ladder = tuple((d, a) for d, a in state.wholesale_ladder if d != ahead)
-        already_sold = initial_illiquid - state.illiquid_assets
+        already_sold = initial_illiquid - state.illiquid_assets - state.portfolio_sold
         fire_sale_cap = max(0.0, fire_sale_daily_capacity * ahead - already_sold)
         state, _, _, _ = _pay(
             state, deposit_outflows, due, rollover, remaining_ladder,
             central_bank_from is not None and ahead >= central_bank_from,
-            ela_from is not None and ahead >= ela_from and is_solvent(state, requirement),
+            ela_headroom_of(state, ahead, ela_from, ela_cap, requirement),
             fire_sale_cap, p,
         )
         if state.rwa > EPS:
@@ -521,13 +586,15 @@ def _row(
     outflow_wholesale: float,
     funding: Funding,
     central_bank_usable: bool,
-    ela_usable: bool,
+    ela_headroom: float,
     projected_cet1: float,
     initial_deposits: float,
     p: ModelParams,
+    portfolio_sale: float = 0.0,
+    portfolio_loss: float = 0.0,
 ) -> dict:
     outflow_total = outflow_deposits + outflow_wholesale
-    buffer = liquidity_buffer(state, central_bank_usable, p, ela_usable)
+    buffer = liquidity_buffer(state, central_bank_usable, p, ela_headroom)
     row = {"day": day, "status": status}
     for name, stock in zip(DEPOSIT_CATEGORIES, state.deposits):
         row[f"dep_{name}"] = stock
@@ -560,7 +627,8 @@ def _row(
         funded_fire_sale=funding.fire_sale,
         unmet_outflow=funding.unmet,
         queued_withdrawals=sum(state.queued_deposits),
-        loss=funding.loss,
+        portfolio_sale=portfolio_sale,
+        loss=funding.loss + portfolio_loss,
         liquidity_buffer=buffer,
         lcr_proxy=lcr_proxy(state, p),
         survival_days=buffer / outflow_total if outflow_total > EPS else math.inf,
@@ -648,27 +716,68 @@ def _check_triggers(
     return new_stage, events
 
 
-def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationResult:
-    """Run the deterministic daily loop for one bank and one scenario.
+_STAGE_OF = {"recovery": 1, "early_intervention": 2, "likely_to_fail": 3, "failure": 4}
+STATUS_RESOLUTION = "resolution"
+STATUS_LIQUIDATION = "liquidation"
 
-    The simulation stops at the payments default day. Row 0 is the opening state.
+
+def _check_choices(decisions: Optional[DecisionsConfig], choices: Sequence[Choice]) -> None:
+    if not choices:
+        return
+    if decisions is None:
+        raise ValueError("a decision set needs the decisions config")
+    seen = set()
+    for choice in choices:
+        decision = decisions.decisions.get(choice.decision)
+        if decision is None or choice.option not in decision.options:
+            raise ValueError(f"unknown decision or option: {choice}")
+        if choice.decision in seen:
+            raise ValueError(f"decision '{choice.decision}' appears twice in the decision set")
+        if choice.day < 0:
+            raise ValueError(f"decision '{choice.decision}': day must be >= 0")
+        seen.add(choice.decision)
+
+
+def simulate(
+    bank: Bank,
+    params: ModelParams,
+    scenario: Scenario,
+    decisions: Optional[DecisionsConfig] = None,
+    choices: Sequence[Choice] = (),
+) -> SimulationResult:
+    """Run the deterministic daily loop for one bank, one scenario and one decision set.
+
+    `choices` is the decision set (SPEC_V2 phase B); empty means "authorities act late".
+    A decision is taken after the close of a day and is in effect `lead_days` later.
+    The simulation stops at the payments default, or on the day a resolution tool is
+    applied. Row 0 is the opening state.
     """
+    _check_choices(decisions, choices)
     p = params.with_overrides(scenario.overrides)
     # The archetype's speed factor scales every run-off rate, like the scenario severity.
-    severity = scenario.severity.value * bank.runoff_speed_factor.value
+    speed = bank.runoff_speed_factor.value
+
+    def severity_on(day: int) -> float:
+        base = scenario.severity.value
+        if scenario.fade is not None:
+            base = scenario.fade.factor_on(day, base)
+        return base * speed
+
+    severity = severity_on(0)
     horizon = int(p.horizon_days.value)
     lag = int(p.central_bank_mobilisation_lag_days.value)
     outage_start = int(p.payment_outage_start_day.value)
     outage_end = int(p.payment_outage_end_day.value)
     decay = p.panic_decay.value
     flag_days = int(p.likely_to_fail_survival_days.value)
-    ela_granted = int(p.ela_granted_from_day.value)
-    ela_from: Optional[int] = ela_granted if ela_granted >= 1 else None
     requirement = bank.capital.capital_requirement_ratio
+    lead = int(decisions.lead_days.value) if decisions is not None else 1
 
     state = initial_state(bank)
     initial_deposits = state.total_deposits
     initial_illiquid = state.illiquid_assets
+    initial_assets = state.total_assets
+    initial_cet1 = state.cet1
     # Fire-sale capacity builds up by this amount every day; unused capacity carries over.
     fire_sale_daily_capacity = p.fire_sale_daily_cap_share.value * initial_illiquid
 
@@ -678,11 +787,25 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
     x = 0.0  # panic input (fading memory)
     loss_seen = 0.0  # deposit loss share (incl. queued) already counted in x
 
+    # State set by decisions.
+    ela_from: Optional[int] = None
+    ela_cap = math.inf
+    moratorium_until = 0
+    foltf_day: Optional[int] = None
+    tool: Optional[str] = None
+    payout_days_prepared: Optional[int] = None
+    payout_decided = False
+    pending = list(choices)
+    decided: dict[str, str] = {}
+    effects: dict[int, list[tuple[str, str]]] = {}  # effect day -> (decision, option)
+    sales: dict[int, list[tuple[float, float]]] = {}  # settlement day -> (amount, discount)
+    log: list[DecisionRecord] = []
+
     def cb_usable(day: int) -> bool:
         return central_bank_from is not None and day >= central_bank_from
 
-    def ela_usable(day: int, current: BankState) -> bool:
-        return ela_from is not None and day >= ela_from and is_solvent(current, requirement)
+    def headroom(day: int, current: BankState) -> float:
+        return ela_headroom_of(current, day, ela_from, ela_cap, requirement)
 
     def loss_share(current: BankState) -> float:
         # Deposits already queued for withdrawal count as lost for the panic input.
@@ -697,12 +820,101 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
     def projection(day: int, current: BankState) -> float:
         return projected_cet1_ratio(
             current, day, next_x(current), severity, flag_days, central_bank_from, ela_from,
-            requirement, fire_sale_daily_capacity, initial_illiquid, p,
+            ela_cap, requirement, fire_sale_daily_capacity, initial_illiquid, p,
         )
+
+    def condition_holds(condition: DecisionCondition, day: int) -> bool:
+        if day < condition.min_day:
+            return False
+        if condition.stage is not None and stage < _STAGE_OF[condition.stage]:
+            return False
+        if condition.after is not None:
+            taken = decided.get(condition.after)
+            if taken is None:
+                return False
+            if condition.after_option is not None and taken != condition.after_option:
+                return False
+        return True
+
+    def take_decisions(day: int, row: dict) -> None:
+        """After the close of `day`: take every scheduled decision whose condition holds."""
+        progress = True
+        while progress:
+            progress = False
+            for choice in list(pending):
+                definition = decisions.decisions[choice.decision]
+                if choice.day > day or not condition_holds(definition.condition, day):
+                    continue
+                pending.remove(choice)
+                decided[choice.decision] = choice.option
+                option = definition.options[choice.option]
+                effect_day = day + lead
+                effects.setdefault(effect_day, []).append((choice.decision, choice.option))
+                figures = tuple(
+                    (name, float(row[name])) for name in decisions.actor_figures[definition.actor]
+                )
+                log.append(
+                    DecisionRecord(
+                        decision=choice.decision,
+                        decision_name=definition.name,
+                        option=choice.option,
+                        option_name=option.name,
+                        actor=definition.actor,
+                        scheduled_day=choice.day,
+                        decided_day=day,
+                        effect_day=effect_day,
+                        figures=figures,
+                    )
+                )
+                events.append(
+                    Event(
+                        day,
+                        "decision",
+                        f"{actor_label(definition.actor)}: {option.name} "
+                        f"(in effect from day {effect_day})",
+                    )
+                )
+                progress = True
+
+    def apply_effect(decision_key: str, option_key: str, day: int) -> float:
+        """Put one decided option into effect at the start of `day`. Returns its panic shock."""
+        nonlocal ela_from, ela_cap, moratorium_until, foltf_day, tool
+        nonlocal payout_days_prepared, payout_decided, pending
+        option = decisions.decisions[decision_key].options[option_key]
+        values = {name: param.value for name, param in option.params.items()}
+        effect = option.effect
+        if effect == "panic_shock":
+            return values["shock"]
+        if effect == "asset_sale":
+            settlement = day + int(values["settlement_days"])
+            sales.setdefault(settlement, []).append(
+                (values["share"] * initial_illiquid, values["discount"])
+            )
+        elif effect == "ela":
+            ela_from = day
+            ela_cap = values["cap_share"] * initial_assets if "cap_share" in values else math.inf
+        elif effect == "trigger":
+            target = option.trigger_decision
+            if target not in decided:  # otherwise the bank has already decided for itself
+                decided[target] = option.trigger_option
+                pending = [choice for choice in pending if choice.decision != target]
+                return apply_effect(target, option.trigger_option, day)
+        elif effect == "declare_foltf":
+            foltf_day = day
+            events.append(Event(day, "foltf", "The bank is declared failing or likely to fail."))
+        elif effect == "moratorium":
+            moratorium_until = max(moratorium_until, day + int(values["days"]) - 1)
+        elif effect == "resolution_tool":
+            tool = option.tool
+        elif effect == "prepare_payout":
+            payout_days_prepared = int(values["payout_days"])
+        elif effect == "dgs_payout":
+            payout_decided = True
+        return 0.0
 
     row = _row(
         0, STATUS_NORMAL, state, panic_multiplier(0.0, p), rollover_fraction(0.0, p),
-        0.0, 0.0, Funding(), False, ela_usable(0, state), projection(0, state),
+        0.0, 0.0, Funding(), False, headroom(0, state), projection(0, state),
         initial_deposits, p,
     )
     stage, new_events = _check_triggers(0, stage, row, requirement, initial_deposits, p)
@@ -715,12 +927,24 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
     failure_day: Optional[int] = 0 if stage == _FAILED_STAGE else None
     funding_need: Optional[FundingNeed] = None
     day = 0
+    if failure_day is None:
+        take_decisions(0, row)
 
-    while failure_day is None and day < horizon:
+    while failure_day is None and tool is None and day < horizon:
         day += 1
 
-        # 1. Run-off.
+        # 0. Decisions in effect from today, and portfolio sales that settle today.
         shock = 0.0
+        for decision_key, option_key in effects.pop(day, []):
+            shock += apply_effect(decision_key, option_key, day)
+        portfolio_sale = portfolio_loss = 0.0
+        for amount, discount in sales.pop(day, []):
+            state, proceeds, sale_loss = sell_portfolio(state, amount, discount)
+            portfolio_sale += proceeds
+            portfolio_loss += sale_loss
+
+        # 1. Run-off, at the severity in effect today (it may fade after the trigger).
+        severity = severity_on(day)
         for event in scenario.news_events:
             if event.day == day:
                 shock += event.panic_shock
@@ -737,9 +961,11 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
         maturing = sum(a for d, a in state.wholesale_ladder if d == day)
         remaining_ladder = tuple((d, a) for d, a in state.wholesale_ladder if d != day)
         usable = cb_usable(day)
+        outage = outage_start >= 1 and outage_start <= day <= outage_end
 
-        if outage_start >= 1 and outage_start <= day <= outage_end:
-            # Payments are blocked: requests are queued, nothing is paid or funded.
+        if outage or day <= moratorium_until or tool is not None:
+            # Payments are blocked (outage, moratorium or resolution day): requests are
+            # queued, nothing is paid or funded.
             outflow_deposits = wholesale_outflow = 0.0
             funding = Funding()
             state = replace(
@@ -749,21 +975,21 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
                 wholesale_overdue=state.wholesale_overdue + maturing,
             )
         else:
-            # Today's requests plus anything queued during an outage are due.
+            # Today's requests plus anything queued while payments were blocked are due.
             deposit_outflows = tuple(q + r for q, r in zip(state.queued_deposits, requests))
             due = maturing + state.wholesale_overdue
 
             # 2. Funding waterfall and 3. balance sheet.
-            already_sold = initial_illiquid - state.illiquid_assets
+            already_sold = initial_illiquid - state.illiquid_assets - state.portfolio_sold
             fire_sale_cap = max(0.0, fire_sale_daily_capacity * day - already_sold)
             state, funding, outflow_deposits, wholesale_outflow = _pay(
                 state, deposit_outflows, due, rollover, remaining_ladder,
-                usable, ela_usable(day, state), fire_sale_cap, p,
+                usable, headroom(day, state), fire_sale_cap, p,
             )
         row = _row(
             day, "", state, multiplier, rollover, outflow_deposits, wholesale_outflow,
-            funding, usable, ela_usable(day, state), projection(day, state),
-            initial_deposits, p,
+            funding, usable, headroom(day, state), projection(day, state),
+            initial_deposits, p, portfolio_sale, portfolio_loss,
         )
 
         # 4. Triggers.
@@ -777,13 +1003,24 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
 
         if stage == _FAILED_STAGE:
             failure_day = day
+        elif tool is not None:
+            row["status"] = STATUS_LIQUIDATION if tool == OUTCOME_LIQUIDATION else STATUS_RESOLUTION
+            events.append(Event(day, "resolution", f"Resolution tool applied: {tool.replace('_', ' ')}."))
+        else:
+            # 5. Decisions taken after the close, on today's figures.
+            take_decisions(day, row)
 
     if failure_day is not None:
+        outcome = OUTCOME_DEFAULT
+    elif tool is not None:
+        outcome = tool
+    else:
+        outcome = OUTCOME_SURVIVES
+
+    if outcome != OUTCOME_SURVIVES:
         days = int(p.resolution_funding_days.value)
-        projected = projected_outflows(state, failure_day, next_x(state), severity, days, p)
-        remaining = liquidity_buffer(
-            state, cb_usable(failure_day), p, ela_usable(failure_day, state)
-        )
+        projected = projected_outflows(state, day, next_x(state), severity, days, p)
+        remaining = liquidity_buffer(state, cb_usable(day), p, headroom(day, state))
         funding_need = FundingNeed(
             days=days,
             projected_outflows=projected,
@@ -791,10 +1028,40 @@ def simulate(bank: Bank, params: ModelParams, scenario: Scenario) -> SimulationR
             need=max(0.0, projected - remaining),
         )
 
+    covered = state.deposits[DEPOSIT_CATEGORIES.index("insured_retail")]
+    paid_out = outcome == OUTCOME_LIQUIDATION and payout_decided
+    if not paid_out:
+        payout_days = None
+    elif payout_days_prepared is not None:
+        payout_days = payout_days_prepared
+    else:
+        payout_days = int(decisions.payout_days_unprepared.value)
+    scorecard = Scorecard(
+        outcome=outcome,
+        end_day=day,
+        deposits_lost=initial_deposits - state.total_deposits,
+        deposits_lost_pct=100.0 * (1.0 - state.total_deposits / initial_deposits)
+        if initial_deposits > 0
+        else 0.0,
+        ela_outstanding=state.ela_funding,
+        central_bank_outstanding=state.central_bank_funding,
+        losses_booked=initial_cet1 - state.cet1,
+        uncovered_deposits=state.total_deposits - covered,
+        covered_deposits=covered,
+        queued_withdrawals=sum(state.queued_deposits),
+        dgs_payout=covered if paid_out else 0.0,
+        payout_days=payout_days,
+    )
+
     return SimulationResult(
         table=pd.DataFrame(rows),
         events=tuple(events),
         failure_day=failure_day,
         funding_need=funding_need,
         likely_to_fail_day=next((e.day for e in events if e.kind == "likely_to_fail"), None),
+        outcome=outcome,
+        end_day=day,
+        foltf_day=foltf_day,
+        decision_log=tuple(log),
+        scorecard=scorecard,
     )

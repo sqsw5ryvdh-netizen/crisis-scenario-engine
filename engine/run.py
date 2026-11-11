@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from engine.config import DEFAULT_CONFIG_DIR, load_config
+from engine.decisions import OUTCOME_LABELS, choices_of, decision_log_rows, scorecard_rows
 from engine.export import daily_table_to_csv, injects_to_csv, script_to_docx
 from engine.injects import build_script
 from engine.model import SimulationResult, simulate
@@ -61,6 +62,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--export-dir", type=Path, help="write the exercise script (.docx) and data (.csv) here"
     )
+    parser.add_argument(
+        "--path", help="decision path in config/decisions.yaml (default: authorities act late)"
+    )
     parser.add_argument("--runs", type=int, help="also run a Monte Carlo with this many runs")
     parser.add_argument("--seed", type=int, help="Monte Carlo seed (default: config value)")
     args = parser.parse_args(argv)
@@ -72,13 +76,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error(
             f"unknown scenario '{args.scenario}'. Available: {', '.join(config.scenarios)}"
         )
+    path_key = args.path or config.decisions.default_path
+    if path_key not in config.decisions.paths:
+        parser.error(
+            f"unknown path '{path_key}'. Available: {', '.join(config.decisions.paths)}"
+        )
     bank = config.banks[args.bank]
     scenario = config.scenarios[args.scenario]
-    result = simulate(bank, config.model, scenario)
+    path = config.decisions.paths[path_key]
+    choices = choices_of(path)
+    result = simulate(bank, config.model, scenario, config.decisions, choices)
     horizon = int(config.model.horizon_days.value)
 
     print(f"Bank: {bank.name} | Scenario: {scenario.name} | severity {scenario.severity.value:g}")
     print(f"Amounts in {bank.unit}. Deterministic run, central parameter values.")
+    print(f"Decision path: {path.name}")
     print()
     print(format_table(result, horizon))
     print()
@@ -90,11 +102,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print()
     if result.likely_to_fail_day is not None:
         print(f"Likely-to-fail flag raised on day {result.likely_to_fail_day}.")
-    if result.failure_day is None:
+    if result.decision_log:
+        print("Decision log")
+        for row in decision_log_rows(result.decision_log, bank.unit):
+            print(
+                f"  {row['Actor']}: {row['Decision']} -> {row['Option']} | decided after close "
+                f"of day {row['Decided after close of day']}, in effect from day "
+                f"{row['In effect from day']}"
+            )
+            print(f"      figures: {row['Figures available at decision time']}")
+        print()
+    print("Scorecard")
+    for label, value in scorecard_rows(result.scorecard, bank.unit):
+        print(f"  {label:<46} {value}")
+    print()
+    if result.outcome == "survives":
         print(f"Outcome: no payments default within {horizon} days.")
+    elif result.failure_day is None:
+        print(f"Outcome: {OUTCOME_LABELS[result.outcome]} on day {result.end_day}.")
     else:
-        need = result.funding_need
         print(f"Outcome: payments default on day {result.failure_day}.")
+    if result.funding_need is not None:
+        need = result.funding_need
         print(
             f"Funding need in resolution ({need.days} days): {need.need:.2f} {bank.unit} "
             f"= projected outflows {need.projected_outflows:.2f} "
@@ -103,7 +132,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.runs is not None:
         seed = int(config.model.monte_carlo_seed.value) if args.seed is None else args.seed
-        summary = summarise(run_monte_carlo(bank, config.model, scenario, args.runs, seed))
+        summary = summarise(
+            run_monte_carlo(
+                bank, config.model, scenario, args.runs, seed, config.decisions, choices
+            )
+        )
         print()
         print(f"Monte Carlo: {args.runs} runs, seed {seed} (ranges are 5th to 95th percentiles)")
         print(f"  Fails in {summary.fail_share:.0%} of runs")

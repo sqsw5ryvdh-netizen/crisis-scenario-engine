@@ -6,6 +6,7 @@ from app.assumptions import (
     FLAG,
     assumption_counts,
     bank_table,
+    decision_table,
     model_table,
     scenario_table,
 )
@@ -34,7 +35,8 @@ def show(table):
 
 config = get_config()
 model, scenarios, banks = model_table(config), scenario_table(config), bank_table(config)
-flagged, total = assumption_counts(model, scenarios, banks)
+decisions = decision_table(config)
+flagged, total = assumption_counts(model, scenarios, banks, decisions)
 
 st.title("Assumptions")
 st.warning(
@@ -52,6 +54,10 @@ show(model)
 
 st.subheader("Scenarios")
 show(scenarios)
+
+st.subheader("Decisions")
+st.caption("Timing rule and the effect of each decision option.")
+show(decisions)
 
 st.subheader("Bank archetypes")
 st.caption("Fictitious opening balance sheets.")

@@ -1,0 +1,278 @@
+# Decision points (SPEC_V2 phase B). Decisions are data: who decides, from when, the options
+# and the effect of each option on the model.
+#
+# Timing: a decision is taken after the close of a day, on that day's figures, and is in
+# effect `lead_days` later. A decision scheduled before its condition holds is taken at the
+# first later close at which the condition holds.
+#
+# condition: stage (reached or passed), after / after_option (another decision taken),
+#            min_day. Stages: recovery, early_intervention, likely_to_fail, failure.
+# effect:    none | panic_shock | asset_sale | ela | trigger | declare_foltf | moratorium |
+#            resolution_tool | prepare_payout | dgs_payout. The list is fixed in the engine.
+# Every number is an ASSUMPTION: none has a verifiable source.
+
+lead_days:
+  value: 1
+  unit: days
+  source: ASSUMPTION
+
+# Days until covered depositors are paid when the payout was not prepared in advance.
+payout_days_unprepared:
+  value: 10
+  unit: days
+  source: ASSUMPTION
+
+# Figures each actor has at the close of the day it decides (written into the decision log).
+# The same day's figures for everyone for now; lags and scopes come with phase D.
+actor_figures:
+  bank_management: [deposits_total, cum_deposit_loss_pct, outflow_total, liquidity_buffer, survival_days, cet1_ratio]
+  competent_authority: [cum_deposit_loss_pct, liquidity_buffer, survival_days, lcr_proxy, cet1_ratio, cet1_ratio_projected]
+  central_bank: [liquidity_buffer, unencumbered_collateral, central_bank_funding, ela_funding, illiquid_assets, cet1_ratio]
+  resolution_authority: [deposits_total, cum_deposit_loss_pct, survival_days, cet1_ratio, central_bank_funding, ela_funding]
+  deposit_guarantee_scheme: [dep_insured_retail, cum_deposit_loss_pct]
+
+decisions:
+  public_statement:
+    name: Public statement
+    actor: bank_management
+    condition:
+      stage: recovery
+    default_option: no_statement
+    options:
+      no_statement:
+        name: No statement
+        effect: none
+      reassuring:
+        name: Statement that reassures
+        description: The statement calms depositors. Whether it does is the facilitator's call.
+        effect: panic_shock
+        params:
+          shock:
+            value: -0.05
+            unit: added to the panic input
+            source: ASSUMPTION
+      backfiring:
+        name: Statement that backfires
+        description: The statement is read as a sign of trouble.
+        effect: panic_shock
+        params:
+          shock:
+            value: 0.05
+            unit: added to the panic input
+            source: ASSUMPTION
+
+  recovery_options:
+    name: Recovery options
+    actor: bank_management
+    condition:
+      stage: recovery
+    default_option: none
+    options:
+      none:
+        name: No recovery option activated
+        effect: none
+      sell_portfolio:
+        name: Sell a loan portfolio
+        description: An orderly sale at a smaller discount than a fire sale; the cash arrives after settlement.
+        effect: asset_sale
+        params:
+          share:
+            value: 0.05
+            unit: share of the opening loan book
+            source: ASSUMPTION
+          discount:
+            value: 0.05
+            unit: share of the amount sold
+            source: ASSUMPTION
+          settlement_days:
+            value: 2
+            unit: days after the decision is in effect
+            source: ASSUMPTION
+
+  early_intervention_measures:
+    name: Early intervention measures
+    actor: competent_authority
+    condition:
+      stage: early_intervention
+    default_option: none
+    options:
+      none:
+        name: No measure
+        effect: none
+      enhanced_reporting:
+        name: Require daily reporting
+        description: No effect on the figures; it matters for the script.
+        effect: none
+      require_recovery_options:
+        name: Require the bank to activate its recovery options
+        description: Forces the portfolio sale if the bank has not started it.
+        effect: trigger
+        trigger_decision: recovery_options
+        trigger_option: sell_portfolio
+
+  declare_foltf:
+    name: Failing or likely to fail (FOLTF)
+    actor: competent_authority
+    condition:
+      stage: likely_to_fail
+    default_option: wait
+    options:
+      wait:
+        name: Wait
+        effect: none
+      declare:
+        name: Declare the bank failing or likely to fail
+        effect: declare_foltf
+
+  ela:
+    name: Emergency liquidity assistance (ELA)
+    actor: central_bank
+    condition:
+      stage: recovery
+    default_option: not_decided
+    options:
+      not_decided:
+        name: No decision
+        effect: none
+      refuse:
+        name: Refuse ELA
+        effect: none
+      grant_capped:
+        name: Grant ELA with a cap
+        effect: ela
+        params:
+          cap_share:
+            value: 0.05
+            unit: share of opening total assets
+            source: ASSUMPTION
+      grant_full:
+        name: Grant ELA up to the available collateral
+        effect: ela
+
+  moratorium:
+    name: Moratorium
+    actor: resolution_authority
+    condition:
+      after: declare_foltf
+      after_option: declare
+    default_option: none
+    options:
+      none:
+        name: No moratorium
+        effect: none
+      one_day:
+        name: Suspend outflows for 1 day
+        effect: moratorium
+        params:
+          days:
+            value: 1
+            unit: days
+            source: ASSUMPTION
+      two_days:
+        name: Suspend outflows for 2 days
+        effect: moratorium
+        params:
+          days:
+            value: 2
+            unit: days
+            source: "docs/SPEC_V2.md phase B (up to 2 business days)"
+
+  resolution_tool:
+    name: Resolution tool
+    actor: resolution_authority
+    condition:
+      after: declare_foltf
+      after_option: declare
+    default_option: not_decided
+    options:
+      not_decided:
+        name: No decision
+        effect: none
+      bail_in:
+        name: Bail-in
+        effect: resolution_tool
+        tool: bail_in
+      sale_of_business:
+        name: Sale of business
+        effect: resolution_tool
+        tool: sale_of_business
+      liquidation:
+        name: No public interest, liquidation
+        effect: resolution_tool
+        tool: liquidation
+
+  prepare_payout:
+    name: Payout preparation
+    actor: deposit_guarantee_scheme
+    condition:
+      stage: early_intervention
+    default_option: none
+    options:
+      none:
+        name: No preparation
+        effect: none
+      prepare:
+        name: Prepare the payout
+        description: Shortens the time to pay covered depositors; it does not change depositor behaviour.
+        effect: prepare_payout
+        params:
+          payout_days:
+            value: 5
+            unit: days
+            source: ASSUMPTION
+
+  dgs_payout:
+    name: Payout of covered deposits
+    actor: deposit_guarantee_scheme
+    condition:
+      after: resolution_tool
+      after_option: liquidation
+    default_option: not_decided
+    options:
+      not_decided:
+        name: No decision
+        effect: none
+      pay_out:
+        name: Pay out covered deposits
+        effect: dgs_payout
+
+# Named decision sets. `day` is the earliest close at which the decision is taken.
+default_path: act_late
+paths:
+  act_late:
+    name: Authorities act late
+    description: Nobody decides anything. The run ends as in the model without decisions.
+    choices: []
+  ela_refused:
+    name: ELA refused
+    description: The central bank refuses emergency liquidity. Nothing else is decided.
+    choices:
+      - {decision: ela, option: refuse, day: 1}
+  ela_granted:
+    name: ELA granted
+    description: The central bank grants emergency liquidity up to the available collateral.
+    choices:
+      - {decision: ela, option: grant_full, day: 1}
+  early_foltf:
+    name: Early FOLTF, bail-in
+    description: FOLTF is declared as soon as the bank is likely to fail; a two-day moratorium, then bail-in.
+    choices:
+      - {decision: declare_foltf, option: declare, day: 1}
+      - {decision: moratorium, option: two_days, day: 1}
+      - {decision: resolution_tool, option: bail_in, day: 3}
+  early_foltf_liquidation:
+    name: Early FOLTF, liquidation
+    description: As above, but with no public interest in resolution; the scheme pays out covered deposits.
+    choices:
+      - {decision: prepare_payout, option: prepare, day: 1}
+      - {decision: declare_foltf, option: declare, day: 1}
+      - {decision: moratorium, option: two_days, day: 1}
+      - {decision: resolution_tool, option: liquidation, day: 3}
+      - {decision: dgs_payout, option: pay_out, day: 3}
+  support_package:
+    name: Support package
+    description: A reassuring statement, a portfolio sale and ELA up to the available collateral, all as early as possible.
+    choices:
+      - {decision: public_statement, option: reassuring, day: 1}
+      - {decision: recovery_options, option: sell_portfolio, day: 1}
+      - {decision: ela, option: grant_full, day: 1}
