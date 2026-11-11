@@ -1,10 +1,30 @@
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Python and tool caches
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets and local settings
+.env
+.env.*
+*.pem
+*.key
+.streamlit/secrets.toml
+
+# Local files
 .DS_Store
-files-2.zip
-data/raw/*
-!data/raw/.gitkeep
 .claude/
 exports/
+files-2.zip
+
+# Raw data is downloaded by hand (see docs/CALIBRATION.md)
+data/raw/*
+!data/raw/.gitkeep
