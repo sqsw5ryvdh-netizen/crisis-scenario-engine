@@ -5,6 +5,7 @@ It generates the quantitative script of a fast-burn bank crisis (deposit run -> 
 
 Full spec: @docs/SPEC.md  (read it before any work)
 Second spec, phases A-F (current work): @docs/SPEC_V2.md
+Third spec, phases G-K (after C2): @docs/SPEC_V3.md. Reference: docs/reference/ (EBA Handbook, EBA/REP/2025/20).
 Current status: @docs/STATUS.md
 
 ## Stack
