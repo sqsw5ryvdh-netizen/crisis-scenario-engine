@@ -605,7 +605,8 @@ def test_app_decisions_tab_compares_the_selected_path_with_a_reference():
     assert at.metric[0].delta == "Liquidation on day 4"
     assert at.selectbox(key="dec:resolution_tool:option").value == "liquidation"
     assert at.number_input(key="dec:resolution_tool:day").value == 3
-    scorecard, log = at.dataframe[0].value, at.dataframe[1].value
+    scorecard, log = at.dataframe[0].value, at.dataframe[-1].value
+    assert len(at.dataframe) == 3  # scorecard, resolution summary, decision log
     assert list(scorecard.columns) == ["Figure", "Authorities act late", "Selected path"]
     payout = scorecard[scorecard["Figure"].str.startswith("DGS payout")].iloc[0]
     assert payout["Authorities act late"] == "0.00" and payout["Selected path"] == "214.09"

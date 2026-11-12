@@ -1,38 +1,37 @@
 # STATUS
 
-Last completed: **SPEC_V2 phase C1 - Calendar and script fixes** (2026-11-13). Done before: M0-M6, phases A, B, B2 and D. Next: phase C2 (resolution), after review. Then E.
+Last completed: **SPEC_V2 phase C2 - Resolution** (2026-11-13). Done before: M0-M6, phases A, B, B2, D and C1. SPEC_V2 phases E and F are folded into docs/SPEC_V3.md. Next: SPEC_V3 phase G (planned, not started).
 
-## What was built in phase C1
-- **Calendar.** Day 1 is the scenario's start weekday. On weekends: no market sales, no central bank drawing, maturities move to Monday; withdrawals come in at 30% of a business day and are paid from cash only, the rest is "requested, not yet settled" until Monday. Nobody defaults on a weekend. Moratorium and sale settlement count business days. Switch: `weekend_rules_on`.
-- **The queue is visible**: in bank management's and the resolution authority's figures, in the timeline and in the liquidity need at the end of a run (now projected outflows plus the queue, less remaining liquidity).
-- **Intraday view**: each day's outflow allocated over four time blocks with fixed shares, in the timeline's day panel and in bank management's injects. Labelled as an allocation.
-- **Script fixes**: notifications that arrive together are one inject; a stage notification carries the figures that triggered it, of that day, and no older table; notifications flow bank -> competent authority -> others (18:00, 18:30, 19:00); deadlines are those of the branch being read (the earlier one in the shared part); six ambient injects from `config/script.yaml`, no model effect, can be switched off.
-- **Showcase**: the app, the guided demo and `--showcase` open on the mid-size retail bank in the geopolitical shock, from a Wednesday. Charts label weekdays and shade weekends. The contagion tab is hidden (engine code kept).
-- Faster uncertainty runs (the result table is built only when needed). `tests/`: 1054 tests.
+## What was built in phase C2
+- **Liability stack** per archetype (`resolution` in `config/banks.yaml`): AT1 and Tier 2, senior non-preferred debt, and the MREL requirement; senior preferred debt, uncovered and covered deposits follow from the balance sheet. AT1 and Tier 2 are calibrated on the EBA file for the universal and retail archetypes; the rest is ASSUMPTION.
+- **Resolution block** (`engine/resolution.py`), computed after a run that ends with a tool: losses booked before FOLTF, valuation write-down, CET1 after it, the need (losses beyond CET1 plus recapitalisation to the requirement), who bears it in order, any shortfall, MREL requirement and available MREL, liquidity need with the withdrawals not yet settled. Liquidation: asset value, what each class of claim recovers, DGS payout and recovery.
+- **Write-down picked by the control team**: low 2%, central 4%, high 8% of the loan book (liquidation haircut 10%, 20%, 35%), all ASSUMPTION. **Breakpoint**: the write-down at which available MREL is no longer enough.
+- **Resolution period in the script**: after FOLTF, injects on the provisional valuation, who bears the losses, communication before reopening and liquidity at reopening, each to its recipients. The facilitator pack shows the summary at the three levels with the breakpoint and states that legal loss-absorption thresholds are not modelled.
+- App: resolution summary for two paths in the Decisions tab, with a level selector. CLI: `--writedown`. `tests/`: 1206 tests.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Showcase pack: `.venv/bin/python -m engine.run --showcase --export-dir exports`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Showcase: `.venv/bin/python -m engine.run --showcase --writedown high --export-dir exports`
 
-## Acceptance output (phase C1)
-Without decisions. R/E/F = day of recovery, early intervention, likely-to-fail flag; then outcome and deposits lost.
+## Acceptance output (phase C2)
+Showcase: retail bank, geopolitical shock from a Wednesday, FOLTF after the close of Friday day 10 (resolution weekend), tool on Monday day 13. CET1 at FOLTF 3.77, losses booked 0.74, MREL requirement 5.70, available MREL 5.57, liquidity need 1.94 of which 0.99 not yet settled.
 
-| Bank | Fast run | Slow burn | Cyber outage | Geopolitical (from Wed) |
-|---|---|---|---|---|
-| Universal | 1/1/1, default day 5, 57% | 7/-/-, under stress, 25% | 3/4/4, under stress, 28% | 2/3/3, under stress, 58% |
-| Retail | 1/1/1, default day 5, 41% | 11/-/-, under stress, 14% | 4/-/-, under stress, 14% | 2/6/6, under stress, 39% |
-| Digital | 1/1/1, default day 2, 29% | 9/-/-, under stress, 18% | 3/4/4, under stress, 19% | 2/3/3, default day 9, 36% |
-| Specialised | 1/1/1, default day 4, 62% | 6/-/-, under stress, 29% | 2/-/-, under stress, 34% | 2/3/3, default day 10, 62% |
+| Bail-in | Low (2%) | Central (4%) | High (8%) |
+|---|---|---|---|
+| Write-down | 0.82 | 1.65 | 3.30 |
+| Need beyond CET1 | 0.00 | 0.27 | 1.82 |
+| AT1 and Tier 2 used, of 0.80 | 0.00 | 0.27 | 0.80 |
+| Senior non-preferred used, of 1.00 | 0.00 | 0.00 | 1.00 |
+| Senior preferred used, of 2.37 | 0.00 | 0.00 | 0.02 |
+| Available MREL covers the need | yes | yes | no |
 
-Showcase (retail, geopolitical): recovery Thu day 2; first weekend days 4-5 with 0.83 requested and not settled; likely to fail Mon day 6; one day of liquidity left on Fri day 10; FOLTF declared that evening (resolution weekend); tool applied Mon day 13. 32.7% of deposits lost, 0.99 requested and not settled, liquidity need 1.94. Branch B: liquidation, payout 22.9.
-- `pytest -q` -> `1054 passed`. "Higher severity never defaults later" holds with the calendar on, so no exception was needed. App checked in the browser.
+Breakpoint: 7.9% of the loan book. Liquidation branch (haircut 10/20/35%): uncovered deposits lose 0 / 0 / 1.33 of 7.95; senior preferred debt and other liabilities lose 0 / 2.68 / 7.53 of 7.53; DGS pays out 22.92 and recovers it in full.
+- `pytest -q` -> `1206 passed`, with tests on stack ordering, the breakpoint and the liquidation order. App checked in the browser.
 
-## Deviations and choices (approved 2026-11-12)
-- Slow-burn severity re-set from 0.3 to 0.38 to keep its agreed target under weekend rules (docs/CALIBRATION.md, section 11).
-- The geopolitical shock starts on a Wednesday; all other presets on a Monday.
-- The capital projection behind the likely-to-fail flag ignores the calendar.
-- The guided demo's fifth step is now "change a decision", not "move a slider".
+## Deviations and choices (approved 2026-11-12/13)
+- Other liabilities above AT1/T2 are not bailed in; in liquidation they rank with senior preferred debt. Order used in this model, not law.
+- Sale of business is computed like bail-in: no buyer and no price. The model stops when the tool is applied.
+- Available MREL at FOLTF is CET1 at that day plus AT1/T2 and senior non-preferred debt; it can be below the requirement after losses.
 
 ## Open questions
-- Resolution is still a label: capital need, loss allocation and the resolution weekend injects are phase C2. Legal loss-absorption thresholds are not modelled (stated in the facilitator pack).
-- Ambient injects, clock times, information sets and all script wording are drafts.
-- A 500-run pass on a 30-day run takes about 1 s. Screenshots in docs/screenshots/ predate phases A to C1.
+- All resolution wording, the stack assumptions and the write-down levels need a practitioner's review.
+- Screenshots in docs/screenshots/ predate phases A to C2. A 500-run pass on a 30-day run takes about 1 s.

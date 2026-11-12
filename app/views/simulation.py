@@ -25,6 +25,13 @@ from engine.decisions import (
 )
 from engine.export import pack_to_zip
 from engine.model import simulate, uninsured_share, with_uninsured_share
+from engine.resolution import (
+    LEVELS,
+    level_value,
+    breakpoint_text,
+    resolution_levels,
+    summary_rows,
+)
 from engine.script import build_pack
 from engine.montecarlo import (
     bands,
@@ -504,10 +511,47 @@ if decisions_tab.open:
             hide_index=True,
             width="stretch",
         )
-        st.caption(
-            "Covered deposits are the insured retail deposits. Bail-in and sale of business "
-            "are outcome labels only until the liability stack is added."
-        )
+        st.caption("Covered deposits are the insured retail deposits.")
+        both = {
+            other_name: resolution_levels(bank, config.model, other),
+            "Selected path": resolution_levels(bank, config.model, result),
+        }
+        if any(levels is not None for levels in both.values()):
+            st.subheader("Resolution summary")
+            st.caption(
+                "What happens to capital and creditors once the bank is declared failing or "
+                "likely to fail. The write-down found by the valuation is not known: pick an "
+                "assumed level. Losses fall in the order used in this model, which is not a "
+                "statement of law; legal loss-absorption thresholds are not modelled."
+            )
+            st.radio(
+                "Valuation write-down of the loan book (assumption)",
+                LEVELS,
+                index=1,
+                key="writedown_level",
+                horizontal=True,
+                format_func=lambda level: (
+                    f"{level.capitalize()}: "
+                    f"{100 * level_value(config.model.resolution_writedown_share, level):.0f}%"
+                ),
+            )
+            level = st.session_state["writedown_level"]
+            columns = {
+                name: dict(summary_rows(levels[level], bank.unit)) if levels else {}
+                for name, levels in both.items()
+            }
+            labels = list(dict.fromkeys(label for rows in columns.values() for label in rows))
+            st.dataframe(
+                pd.DataFrame(
+                    {"Figure": labels}
+                    | {name: [rows.get(label, "") for label in labels] for name, rows in columns.items()}
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+            for name, levels in both.items():
+                if levels is not None:
+                    st.caption(f"{name}: {breakpoint_text(levels[level])}")
         st.subheader("Decision log of the selected path")
         if result.decision_log:
             st.dataframe(
@@ -585,6 +629,7 @@ if script_tab.open:
         pack = build_pack(
             bank, config.model, scenario, config.decisions, config.script, branches,
             ambient=ambient_on,
+            writedown_level=st.session_state.get("writedown_level", "central"),
         )
         with st.container(key="ctl_export"):
             st.download_button(
@@ -630,6 +675,10 @@ if script_tab.open:
                         st.caption("Told in notifications so far")
                         for figure in inject.notified:
                             st.markdown(f"- {figure.text}, as of day {figure.as_of_day}")
+                    if inject.resolution:
+                        st.caption("Estimates, resting on an assumed write-down")
+                        for figure in inject.resolution:
+                            st.markdown(f"- {figure.text}")
                     if inject.figures:
                         st.caption(
                             "Latest regular report, as of the close of day "

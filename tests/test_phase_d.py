@@ -142,7 +142,7 @@ def allowed_tokens(pack, actor: str) -> set[str]:
     """Every number that may be printed in an actor's document."""
     tokens = set()
     for _, inject in all_injects(pack, actor):
-        for figure in inject.figures + inject.headline + inject.notified:
+        for figure in inject.figures + inject.headline + inject.notified + inject.resolution:
             tokens.update(FIGURE_TOKEN.findall(figure.text))
             tokens.update(FIGURE_TOKEN.findall(figure.threshold_text))
     return tokens
@@ -202,6 +202,13 @@ def check_gate(pack, actor: str) -> int:
                     checked += 1
             for figure in inject.notified:
                 assert told.get(figure.name) == figure and figure.as_of_day <= inject.day
+            # Resolution estimates: only in the resolution period, to the listed recipients.
+            if inject.resolution:
+                assert inject.kind == "resolution_step" and result.foltf_day is not None
+                assert result.foltf_day <= inject.day <= result.end_day
+                item = next(i for i in SCRIPT.resolution.values() if i.title == inject.title)
+                assert actor in item.recipients and item.figures
+                checked += len(inject.resolution)
     return checked
 
 
@@ -552,7 +559,7 @@ def test_pack_holds_one_document_per_actor_the_facilitator_pack_and_the_data(acc
         [f"participants/{actor}.docx" for actor in ACTORS]
         + ["facilitator/facilitator_pack.docx"]
         + [f"facilitator/data/{name}.csv" for name in (
-            "injects", "decision_points", "decision_log",
+            "injects", "decision_points", "decision_log", "resolution_summary",
             "daily_table_branch_A", "daily_table_branch_B")]
     )
     injects = pd.read_csv(io.BytesIO(files["facilitator/data/injects.csv"]))
@@ -574,7 +581,7 @@ def test_zip_is_complete_and_reproducible(acceptance):
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert archive.testzip() is None
         names = archive.namelist()
-    assert len(names) == 11 and "facilitator/facilitator_pack.docx" in names
+    assert len(names) == 12 and "facilitator/facilitator_pack.docx" in names
     with zipfile.ZipFile(io.BytesIO(again)) as archive:
         assert archive.namelist() == names
         csv = archive.read("facilitator/data/injects.csv")
@@ -587,6 +594,7 @@ def test_zip_is_complete_and_reproducible(acceptance):
 def test_a_pack_can_be_built_for_every_bank_and_scenario(bank, scenario):
     pack = pack_for(bank, scenario, "act_late", "support_package")
     files = pack_files(pack, SCRIPT, DECISIONS)
+    # No resolution on either branch here, so no resolution summary file.
     assert len(files) == 11 and all(len(content) > 0 for content in files.values())
     for document in pack.documents:
         assert document.shared[0].kind == "opening"

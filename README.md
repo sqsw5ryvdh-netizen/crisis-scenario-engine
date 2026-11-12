@@ -85,6 +85,21 @@ and a second one. The zip contains:
 Who sees what is set in `config/decisions.yaml` (`information`); the wording, clock times
 and coordination steps are in `config/script.yaml`. All of it is a draft.
 
+## Resolution
+
+When a path ends with a resolution tool or in liquidation, the tool works out what happens
+to capital and creditors at the FOLTF declaration: losses booked so far, an assumed
+write-down of the loan book, the capital needed to restore the requirement, and who bears
+it from the liability stack (CET1, AT1 and Tier 2, senior non-preferred debt, senior
+preferred debt, uncovered deposits; covered deposits are protected). In liquidation it
+shows what each class of claim recovers and the payout by the deposit guarantee scheme.
+
+The write-down is not known, so the control team picks low, central or high; all three are
+assumptions. The summary also gives the breakpoint: the write-down at which available MREL
+is no longer enough and senior preferred debt is reached. The exercise script continues
+through the resolution period with injects on the valuation, the loss allocation,
+communication before reopening and liquidity at reopening.
+
 ## Command line
 
 ```bash
@@ -94,7 +109,7 @@ and coordination steps are in `config/script.yaml`. All of it is a draft.
 This prints the daily table. Add `--path early_foltf` to follow a decision path,
 `--runs 500` for the uncertainty ranges and `--export-dir exports` to write the exercise
 pack (with `--compare-path` for the second branch, `--no-ambient` to leave the ambient
-injects out). `python -m engine.run --showcase --export-dir exports` exports the showcase.
+injects out, `--writedown low|central|high` for the assumed write-down). `python -m engine.run --showcase --export-dir exports` exports the showcase.
 
 ## Tests
 
@@ -138,8 +153,10 @@ injects out). `python -m engine.run --showcase --export-dir exports` exports the
 - **The exercise script is a draft.** Its wording, coordination steps, deadlines and
   information delays were written for this prototype, contain no legal references and have
   not been reviewed by a practitioner. Delays are whole days.
-- **Resolution is not computed yet.** The script stops when the tool is applied; capital
-  need, loss allocation and legal loss-absorption thresholds are not modelled.
+- **Resolution figures are illustrations.** They rest on an assumed write-down and on the
+  order of loss absorption used in this model, which is not a statement of law. Legal
+  loss-absorption thresholds are not modelled, sale of business is computed like bail-in
+  with no buyer or price, and the model stops when the tool is applied.
 - **Daily steps only.** A run that happens within hours is shown as one day.
 - **Contagion is hidden in the app** until it is replaced by the cross-border group; its
   engine code is one-way and works through news only.

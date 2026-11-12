@@ -12,6 +12,7 @@ from engine.decisions import OPEN_OUTCOMES, OUTCOME_LABELS, choices_of, decision
 from engine.export import pack_files, pack_to_zip
 from engine.model import SimulationResult, simulate
 from engine.montecarlo import describe_failure_day, run_monte_carlo, summarise
+from engine.resolution import LEVELS, breakpoint_text, resolution_summary, summary_rows
 from engine.script import build_pack
 
 # column in the result table -> (header, format)
@@ -64,6 +65,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument(
         "--no-ambient", action="store_true", help="leave the ambient injects out of the pack"
+    )
+    parser.add_argument(
+        "--writedown", choices=LEVELS, default="central",
+        help="valuation write-down at FOLTF used in the resolution summary (an assumption)",
     )
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
     parser.add_argument(
@@ -142,11 +147,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"Outcome: {OUTCOME_LABELS[result.outcome]} on day {result.end_day}.")
     else:
         print(f"Outcome: payments default on day {result.failure_day}.")
+    summary = resolution_summary(bank, config.model, result, args.writedown)
+    if summary is not None:
+        print("Resolution summary")
+        for label, value in summary_rows(summary, bank.unit):
+            print(f"  {label:<88} {value}")
+        print(f"  {breakpoint_text(summary)}")
+        print()
     if result.funding_need is not None:
         need = result.funding_need
         print(
             f"Funding need in resolution ({need.days} days): {need.need:.2f} {bank.unit} "
             f"= projected outflows {need.projected_outflows:.2f} "
+            f"+ requested, not yet settled {need.queued:.2f} "
             f"- remaining liquidity {need.remaining_liquidity:.2f}"
         )
 
@@ -181,6 +194,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         pack = build_pack(
             bank, config.model, scenario, config.decisions, config.script, branches,
             ambient=not args.no_ambient,
+            writedown_level=args.writedown,
         )
         stem = f"exercise_pack_{args.bank}_{args.scenario}"
         args.export_dir.mkdir(parents=True, exist_ok=True)

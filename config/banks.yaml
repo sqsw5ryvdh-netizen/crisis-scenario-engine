@@ -3,6 +3,7 @@
 # Equity is represented by CET1: assets = liabilities + cet1.
 # wholesale_funding.maturing: amount falling due on each simulated day (key = day).
 # runoff_speed_factor: multiplies every deposit run-off rate of the archetype (1 = global rates).
+# resolution: the loss-absorbing layers above CET1 and the MREL requirement (share of RWA).
 
 universal:
   name: Large universal bank
@@ -21,6 +22,7 @@ universal:
     other_liabilities: "Remainder of total assets after deposits, wholesale funding and CET1; docs/CALIBRATION.md"
     cet1: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520102 / 2521010; docs/CALIBRATION.md"
     rwa: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520138 / 2521010; docs/CALIBRATION.md"
+    at1_t2: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of (item 2520128 + item 2520134) / item 2521010; docs/CALIBRATION.md"
   assets:
     cash_reserves: 99.4
     hqla_level1: 120.0
@@ -47,6 +49,13 @@ universal:
     cet1: 47.6
     rwa: 303.3
     capital_requirement_ratio: 0.11
+  # Layers above CET1 that can absorb losses in resolution, and the MREL requirement.
+  # at1_t2 is part of other_liabilities; senior_non_preferred is part of the wholesale
+  # funding beyond the horizon. Available MREL = cet1 + at1_t2 + senior_non_preferred.
+  resolution:
+    at1_t2: 13.45
+    senior_non_preferred: 30.0
+    mrel_requirement_ratio: 0.27
   runoff_speed_factor:
     value: 1.0
     unit: multiplier of run-off rates
@@ -69,6 +78,7 @@ retail:
     other_liabilities: "Remainder of total assets after deposits, wholesale funding and CET1; docs/CALIBRATION.md"
     cet1: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520102 / 2521010; docs/CALIBRATION.md"
     rwa: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of item 2520138 / 2521010; docs/CALIBRATION.md"
+    at1_t2: "EBA 2025 EU-wide Transparency Exercise, tr_oth.csv, June 2025, peer median of (item 2520128 + item 2520134) / item 2521010; docs/CALIBRATION.md"
   assets:
     cash_reserves: 4.77
     hqla_level1: 6.0
@@ -92,6 +102,13 @@ retail:
     cet1: 4.51
     rwa: 23.73
     capital_requirement_ratio: 0.105
+  # Layers above CET1 that can absorb losses in resolution, and the MREL requirement.
+  # at1_t2 is part of other_liabilities; senior_non_preferred is part of the wholesale
+  # funding beyond the horizon. Available MREL = cet1 + at1_t2 + senior_non_preferred.
+  resolution:
+    at1_t2: 0.8
+    senior_non_preferred: 1.0
+    mrel_requirement_ratio: 0.24
   runoff_speed_factor:
     value: 1.0
     unit: multiplier of run-off rates
@@ -128,6 +145,13 @@ digital:
     cet1: 1.5
     rwa: 8.0
     capital_requirement_ratio: 0.105
+  # Layers above CET1 that can absorb losses in resolution, and the MREL requirement.
+  # at1_t2 is part of other_liabilities; senior_non_preferred is part of the wholesale
+  # funding beyond the horizon. Available MREL = cet1 + at1_t2 + senior_non_preferred.
+  resolution:
+    at1_t2: 0.1
+    senior_non_preferred: 0.3
+    mrel_requirement_ratio: 0.22
   # Online deposits leave faster than the global rates, insured ones included.
   runoff_speed_factor:
     value: 1.5
@@ -164,6 +188,13 @@ specialised:
     cet1: 2.8
     rwa: 17.0
     capital_requirement_ratio: 0.11
+  # Layers above CET1 that can absorb losses in resolution, and the MREL requirement.
+  # at1_t2 is part of other_liabilities; senior_non_preferred is part of the wholesale
+  # funding beyond the horizon. Available MREL = cet1 + at1_t2 + senior_non_preferred.
+  resolution:
+    at1_t2: 0.3
+    senior_non_preferred: 0.8
+    mrel_requirement_ratio: 0.22
   runoff_speed_factor:
     value: 1.0
     unit: multiplier of run-off rates

@@ -103,7 +103,19 @@ class Capital(StrictModel):
     cet1: float = NonNegative
     rwa: float = Field(gt=0)
     capital_requirement_ratio: float = Field(gt=0, lt=1)
-    mrel: Optional[float] = Field(default=None, ge=0)
+
+
+class ResolutionStack(StrictModel):
+    """The loss-absorbing layers above CET1 and the MREL requirement (SPEC_V2 phase C2).
+
+    AT1/T2 is part of other liabilities and senior non-preferred debt is part of the
+    wholesale funding that matures beyond the horizon. Senior preferred debt is the rest of
+    the wholesale funding; uncovered deposits are all deposits but insured retail.
+    """
+
+    at1_t2: float = NonNegative
+    senior_non_preferred: float = NonNegative
+    mrel_requirement_ratio: float = Field(gt=0, lt=1)  # share of risk-weighted assets
 
 
 # Balance sheet lines that can carry their own source (see Bank.sources).
@@ -122,6 +134,9 @@ BANK_ITEMS = (
     "cet1",
     "rwa",
     "capital_requirement_ratio",
+    "at1_t2",
+    "senior_non_preferred",
+    "mrel_requirement_ratio",
 )
 
 
@@ -135,11 +150,21 @@ class Bank(StrictModel):
     assets: Assets
     liabilities: Liabilities
     capital: Capital
+    resolution: ResolutionStack
     # Multiplies every deposit run-off rate of this archetype (1 = the global rates).
     runoff_speed_factor: Parameter
 
     def source_of(self, item: str) -> str:
         return self.sources.get(item, self.source)
+
+    @property
+    def mrel_available(self) -> float:
+        """Own funds plus senior non-preferred debt, at the opening balance sheet."""
+        return self.capital.cet1 + self.resolution.at1_t2 + self.resolution.senior_non_preferred
+
+    @property
+    def mrel_requirement(self) -> float:
+        return self.resolution.mrel_requirement_ratio * self.capital.rwa
 
     @model_validator(mode="after")
     def _check_identity(self) -> "Bank":
@@ -150,6 +175,14 @@ class Bank(StrictModel):
             raise ValueError("a line source must not be empty")
         if self.runoff_speed_factor.value < 0:
             raise ValueError("runoff_speed_factor must be >= 0")
+        if self.resolution.at1_t2 > self.liabilities.other_liabilities + BALANCE_TOLERANCE:
+            raise ValueError("resolution.at1_t2 is part of, and cannot exceed, other_liabilities")
+        beyond = self.liabilities.wholesale_funding.beyond_horizon
+        if self.resolution.senior_non_preferred > beyond + BALANCE_TOLERANCE:
+            raise ValueError(
+                "resolution.senior_non_preferred is part of, and cannot exceed, the wholesale "
+                "funding beyond the horizon"
+            )
         gap = self.assets.total() - (self.liabilities.total() + self.capital.cet1)
         if abs(gap) > BALANCE_TOLERANCE:
             raise ValueError(
@@ -302,6 +335,11 @@ class ModelParams(StrictModel):
     # "Likely to fail" flag: survival horizon below this number of days, or CET1 ratio
     # projected below the requirement over the same number of days.
     likely_to_fail_survival_days: Parameter
+    # Resolution (computed after a run, never during it): the write-down of the loan book
+    # found by the valuation at FOLTF, and the value lost on it in a liquidation. Each has a
+    # low, central and high value; the control team picks one.
+    resolution_writedown_share: Parameter
+    liquidation_haircut: Parameter
     # Thresholds of the "stabilised" outcome at the end of a run.
     stabilised_days: Parameter
     stabilised_outflow_share: Parameter
@@ -343,6 +381,9 @@ class ModelParams(StrictModel):
                 raise ValueError(f"{name} must be a whole number")
         if self.stabilised_days.value < 1:
             raise ValueError("stabilised_days must be >= 1")
+        for name in ("resolution_writedown_share", "liquidation_haircut"):
+            if getattr(self, name).low is None:
+                raise ValueError(f"{name} needs a low and a high value")
         if self.weekend_rules_on.value not in (0, 1):
             raise ValueError("weekend_rules_on must be 0 or 1")
         intraday = sum(getattr(self, f"intraday_share_{block}").value for block in INTRADAY_BLOCKS)
@@ -680,6 +721,34 @@ class AmbientInject(StrictModel):
         return self
 
 
+# Groups of resolution figures an inject of the resolution period can carry.
+RESOLUTION_FIGURE_GROUPS = ("capital", "mrel", "losses", "liquidity")
+
+
+class ResolutionInject(StrictModel):
+    """An inject of the resolution period, between FOLTF and the tool (SPEC_V2 phase C2)."""
+
+    title: str = Field(min_length=1)
+    sender: str = Field(min_length=1)
+    recipients: list[str]
+    offset_days: int = Field(ge=0)  # days after FOLTF is in effect
+    time: str
+    text: str = Field(min_length=1)
+    figures: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check(self) -> "ResolutionInject":
+        unknown = set(self.recipients) - set(ACTORS)
+        if unknown or not self.recipients:
+            raise ValueError(f"resolution inject '{self.title}': unknown or missing recipients")
+        if set(self.figures) - set(RESOLUTION_FIGURE_GROUPS):
+            raise ValueError(f"resolution inject '{self.title}': unknown figure group")
+        _check_text(self.text, ("bank_name", "tool"))
+        if any(character.isdigit() for character in self.text):
+            raise ValueError(f"resolution inject '{self.title}': the text must not carry figures")
+        return self
+
+
 class GlossaryEntry(StrictModel):
     term: str = Field(min_length=1)
     definition: str = Field(min_length=1)
@@ -710,6 +779,8 @@ class ScriptConfig(StrictModel):
     coordination: dict[str, Coordination]
     # Optional background injects; the facilitator can switch them off.
     ambient: dict[str, AmbientInject] = Field(default_factory=dict)
+    # Injects of the resolution period, in order.
+    resolution: dict[str, ResolutionInject] = Field(default_factory=dict)
     debrief: list[str]
     glossary: list[GlossaryEntry]
 
@@ -721,6 +792,7 @@ class ScriptConfig(StrictModel):
             raise ValueError(f"clock must give a time for exactly {list(SCRIPT_CLOCK)}")
         times = dict(self.clock)
         times.update({f"ambient {key}": item.time for key, item in self.ambient.items()})
+        times.update({f"resolution {key}": item.time for key, item in self.resolution.items()})
         for kind, value in times.items():
             hours, _, minutes = value.partition(":")
             if not (hours.isdigit() and minutes.isdigit() and len(minutes) == 2

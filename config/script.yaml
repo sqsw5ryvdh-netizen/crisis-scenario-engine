@@ -142,6 +142,55 @@ ambient:
       An association of depositors asks when and how customers of {bank_name} will have
       access to their money, and where they should turn for information.
 
+# Injects of the resolution period: after FOLTF is in effect and before the tool applies.
+# Each is placed `offset_days` after the FOLTF day (never after the last day of the run).
+# figures: groups of resolution figures it carries (capital, mrel, losses, liquidity). They are
+# estimates that rest on an assumed write-down; the control team picks low, central or high.
+resolution:
+  valuation:
+    title: Provisional valuation
+    sender: The independent valuer
+    recipients: [resolution_authority, competent_authority]
+    offset_days: 0
+    time: "12:00"
+    text: >-
+      The provisional valuation of {bank_name} is in. It is an estimate made under time
+      pressure and may be revised. It gives the write-down of the loan book and the capital
+      needed to restore the requirement.
+    figures: [capital, mrel]
+  loss_allocation:
+    title: Who bears the losses
+    sender: The resolution team
+    recipients: [resolution_authority, competent_authority, central_bank, deposit_guarantee_scheme, bank_management]
+    offset_days: 1
+    time: "10:00"
+    text: >-
+      The resolution team has worked out who would bear the losses of {bank_name} under
+      the option being prepared: {tool}. The order of loss absorption is the one used in
+      this model.
+    figures: [losses]
+  communication:
+    title: Communication before the bank reopens
+    sender: Exercise control
+    recipients: [resolution_authority, competent_authority, central_bank, deposit_guarantee_scheme, bank_management]
+    offset_days: 1
+    time: "15:00"
+    text: >-
+      Markets open tomorrow morning. Agree who announces the outcome for {bank_name}, at
+      what time, and with which message for depositors, for creditors and for staff. Agree
+      who answers the press, and what each authority will not say.
+  reopening_liquidity:
+    title: Liquidity when the bank reopens
+    sender: The resolution team
+    recipients: [resolution_authority, central_bank, bank_management]
+    offset_days: 1
+    time: "17:00"
+    text: >-
+      Estimate of the liquidity {bank_name} needs over the days after it reopens,
+      including the withdrawals requested during the weekend and not yet settled. Decide
+      who provides it and against what.
+    figures: [liquidity]
+
 # One question per decision, put to the actor that decides.
 questions:
   public_statement: What would you say in public, and what would you leave out? Who needs to see the statement before it goes out?

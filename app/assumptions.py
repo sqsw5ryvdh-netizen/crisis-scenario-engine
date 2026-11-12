@@ -92,6 +92,11 @@ def bank_table(config: Config) -> pd.DataFrame:
             ("Risk-weighted assets", "rwa", bank.capital.rwa),
             ("Capital requirement", "capital_requirement_ratio",
              bank.capital.capital_requirement_ratio),
+            ("AT1 and Tier 2 (part of other liabilities)", "at1_t2", bank.resolution.at1_t2),
+            ("Senior non-preferred debt (part of wholesale funding)", "senior_non_preferred",
+             bank.resolution.senior_non_preferred),
+            ("MREL requirement", "mrel_requirement_ratio",
+             bank.resolution.mrel_requirement_ratio),
         ]
         for label, key, value in items:
             source = bank.source_of(key)
@@ -102,7 +107,7 @@ def bank_table(config: Config) -> pd.DataFrame:
                     "Status": FLAG if ASSUMPTION in source.upper() else SOURCED,
                     "Item": label,
                     "Value": value,
-                    "Unit": "ratio of RWA" if key == "capital_requirement_ratio" else bank.unit,
+                    "Unit": "ratio of RWA" if key.endswith("_ratio") else bank.unit,
                     "Source": source,
                 }
             )

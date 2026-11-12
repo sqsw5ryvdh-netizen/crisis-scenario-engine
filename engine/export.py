@@ -13,14 +13,17 @@ import pandas as pd
 from docx import Document
 
 from engine.decisions import OUTCOME_LABELS, actor_label, decision_log_rows, scorecard_rows
+from engine.resolution import breakpoint_text, summary_rows
 from engine.schema import WEEKDAYS, DecisionsConfig, ScriptConfig
 from engine.script import ExercisePack, Inject
 
 KNOWN_LIMITS = (
     "Legal loss-absorption thresholds are not modelled: the model does not test any minimum "
     "amount of losses that shareholders and creditors must bear before other funds are used.",
-    "Bail-in and sale of business are outcome labels: the model does not yet compute who "
-    "bears which loss.",
+    "The resolution figures rest on an assumed write-down of the loan book (low, central or "
+    "high) and on the order of loss absorption used in this model, which is not a statement "
+    "of law. Sale of business is computed like bail-in; no buyer or price is modelled.",
+    "The model stops when the tool is applied: there is no run after the bank reopens.",
     "Days are whole days. Times of day are labels, and the outflow by time block is an "
     "allocation of the daily figure, not a simulation of the day.",
     "On weekends there are no market sales and no central bank drawing; withdrawals are paid "
@@ -117,6 +120,15 @@ def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
             document,
             ["Figure", "Value", "As of the close of"],
             [[figure.label, value(figure), f"day {figure.as_of_day}"] for figure in inject.notified],
+        )
+    if inject.resolution:
+        document.add_paragraph(
+            "Estimates. They rest on an assumed write-down of the loan book and may be revised:"
+        )
+        _table(
+            document,
+            ["Figure", "Estimate"],
+            [[figure.label, value(figure)] for figure in inject.resolution],
         )
     if inject.figures:
         as_of = inject.figures[0].as_of_day
@@ -260,6 +272,27 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
                 "FOLTF is declared after a Friday close: the authorities have a resolution "
                 "weekend before the bank would reopen on Monday."
             )
+        if branch.resolution is not None:
+            document.add_heading("Resolution summary", level=2)
+            document.add_paragraph(
+                "The valuation write-down is not known: the three columns use the low, central "
+                "and high values, all assumptions. Participants' documents use the "
+                f"{pack.writedown_level} value. Losses fall on CET1 first, then on the layers "
+                "below in the order shown, which is the order used in this model."
+            )
+            rows = {
+                level: summary_rows(summary, pack.unit)
+                for level, summary in branch.resolution.items()
+            }
+            _table(
+                document,
+                ["", "Low", "Central", "High"],
+                [
+                    [label, rows["low"][index][1], rows["central"][index][1], rows["high"][index][1]]
+                    for index, (label, _) in enumerate(rows["central"])
+                ],
+            )
+            document.add_paragraph(breakpoint_text(branch.resolution["central"]))
         document.add_heading("Decisions taken on this branch", level=2)
         log = decision_log_rows(branch.result.decision_log, pack.unit)
         if log:
@@ -359,6 +392,7 @@ def injects_frame(pack: ExercisePack) -> pd.DataFrame:
                             f"{figure.text} (threshold {figure.threshold_text}, day {figure.as_of_day})"
                             for figure in inject.headline
                         ),
+                        "resolution_estimates": "; ".join(f.text for f in inject.resolution),
                         "report_as_of_day": inject.figures[0].as_of_day if inject.figures else "",
                         "report": "; ".join(figure.text for figure in inject.figures),
                         "decision": due.name if due else "",
@@ -418,6 +452,15 @@ def pack_files(
     files["facilitator/data/decision_log.csv"] = _csv(pd.DataFrame(log_rows))
     for branch in pack.branches:
         files[f"facilitator/data/daily_table_branch_{branch.label}.csv"] = _csv(branch.result.table)
+    resolution_rows = [
+        {"branch": branch.label, "level": level, "figure": label, "value": value}
+        for branch in pack.branches
+        if branch.resolution is not None
+        for level, summary in branch.resolution.items()
+        for label, value in summary_rows(summary, pack.unit)
+    ]
+    if resolution_rows:
+        files["facilitator/data/resolution_summary.csv"] = _csv(pd.DataFrame(resolution_rows))
     return files
 
 

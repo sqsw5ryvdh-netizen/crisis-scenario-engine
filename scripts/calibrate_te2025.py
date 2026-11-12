@@ -100,6 +100,26 @@ def load_shares() -> pd.DataFrame:
     return shares
 
 
+# Own funds above CET1 (SPEC_V2 phase C2): Additional Tier 1 and Tier 2 capital. Read
+# separately, so that the peer groups and the calibrated lines above do not change.
+OWN_FUNDS_ITEMS = {"at1": "2520128", "t2": "2520134"}
+
+
+def at1_t2_share(group: pd.DataFrame) -> tuple[float, int]:
+    """Median of (AT1 + T2) / total assets over the peers that report both, and their number."""
+    data = pd.read_csv(RAW / "tr_oth.csv", dtype=str)
+    data = data[(data["Period"] == PERIOD) & (data["LEI_Code"].isin(group.index))]
+    data = data.assign(Amount=pd.to_numeric(data["Amount"], errors="coerce"))
+    amounts = pd.DataFrame(
+        {
+            name: data[data["Item"] == item].groupby("LEI_Code")["Amount"].sum(min_count=1)
+            for name, item in OWN_FUNDS_ITEMS.items()
+        }
+    ).dropna()
+    shares = (amounts["at1"] + amounts["t2"]) / group.loc[amounts.index, "total_assets_mn"]
+    return float(shares.median()), len(shares)
+
+
 def archetype_block(key: str, median: pd.Series, current: dict) -> dict:
     """Balance sheet for config/banks.yaml: data-driven lines plus the kept assumptions."""
     assets, liabilities = current["assets"], current["liabilities"]
@@ -157,6 +177,7 @@ def archetype_block(key: str, median: pd.Series, current: dict) -> dict:
             "rwa": amount(median["total_risk_exposure_amount"]),
             "capital_requirement_ratio": current["capital"]["capital_requirement_ratio"],
         },
+        "resolution": current["resolution"],
         "runoff_speed_factor": current["runoff_speed_factor"],
     }
 
@@ -186,6 +207,10 @@ def main() -> int:
             print(f"  {row['country']}  {lei}  {names.get(lei, '?')}")
         print("\nMedian share of total assets:")
         print(median.round(4).to_string())
+        share, reporting = at1_t2_share(group)
+        total = sum(current[key]["assets"].values())
+        print(f"AT1 + T2 (items {', '.join(OWN_FUNDS_ITEMS.values())}): median {share:.4f} of "
+              f"total assets over {reporting} banks -> at1_t2 = {round(share * total, 2)}")
         print("\nBlock for config/banks.yaml:")
         print(yaml.safe_dump(archetype_block(key, median, current[key]), sort_keys=False))
     return 0

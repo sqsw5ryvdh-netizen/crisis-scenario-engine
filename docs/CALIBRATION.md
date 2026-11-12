@@ -381,3 +381,21 @@ Outcome of the 16 bank and scenario pairs after these changes: `docs/STATUS.md`.
 - The table in section 7.4 was re-run: the fast-run rows are unchanged (the run is over
   before the first weekend) and the slow-burn rows reflect the new severity. In the slow
   burn the largest one-day loss is now a Monday, when the weekend's requests are paid.
+
+## 12. Changes in SPEC_V2 phase C2
+
+- **AT1 and Tier 2**, in `config/banks.yaml` (`resolution.at1_t2`), for the universal and
+  retail archetypes: peer median of (item 2520128, Additional Tier 1 capital, plus item
+  2520134, Tier 2 capital) divided by item 2521010 (total assets), same file, period and peer
+  groups as section 4. Result: 1.34% of total assets for the universal group (28 banks) and
+  1.33% for the retail group (40 banks), that is 13.45 and 0.80 in the archetypes' units.
+  `scripts/calibrate_te2025.py` prints both. In the balance sheet this amount is part of
+  "other liabilities".
+- **Everything else in the stack is `ASSUMPTION`**: senior non-preferred debt (taken out of
+  the wholesale funding beyond the horizon), the MREL requirement as a share of RWA (27%,
+  24%, 22%, 22%), and the whole stack of the digital and specialised archetypes. The
+  Transparency Exercise file used here has no MREL or creditor-hierarchy items.
+- **Write-down at FOLTF**: 2%, 4% or 8% of the loan book, and **liquidation haircut**: 10%,
+  20% or 35%, in `config/model.yaml`. All `ASSUMPTION`; the control team picks the level.
+- The order in which losses are absorbed is the order used in this model, not a statement
+  of law, and legal loss-absorption thresholds are not modelled.

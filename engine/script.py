@@ -25,6 +25,7 @@ from engine.decisions import (
     lag_days,
 )
 from engine.model import SimulationResult, simulate
+from engine.resolution import ResolutionSummary, resolution_levels, summary_rows
 from engine.schema import (
     ACTORS,
     DECISION_STAGES,
@@ -40,7 +41,7 @@ _STATUS_STAGE = {"normal": 0, "recovery": 1, "early_intervention": 2, "likely_to
 # Order of injects that fall on the same day and time.
 _KIND_ORDER = (
     "opening", "foltf", "decision_taken", "news", "ambient", "recovery", "early_intervention",
-    "likely_to_fail", "failure", "resolution", "decision_due", "end_open",
+    "likely_to_fail", "failure", "resolution_step", "resolution", "decision_due", "end_open",
 )
 _TITLES = {
     "opening": "Opening",
@@ -55,6 +56,7 @@ _TITLES = {
     "decision_due": "Decision open to you",
     "end_open": "End of the exercise",
     "ambient": "Ambient",
+    "resolution_step": "Resolution period",
 }
 
 
@@ -108,6 +110,8 @@ class Inject:
     # Decision injects: the triggering figures the actor has been told so far.
     notified: tuple[Figure, ...] = ()
     stages: tuple[str, ...] = ()  # the stage changes this notification covers
+    # Injects of the resolution period: estimates from the resolution block.
+    resolution: tuple[Figure, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -141,6 +145,8 @@ class BranchScript:
     result: SimulationResult
     injects: dict[str, tuple[Inject, ...]]  # per actor, in order
     decision_points: tuple[DecisionPoint, ...]
+    # The resolution figures at each write-down level; None if the run has no resolution.
+    resolution: Optional[dict[str, ResolutionSummary]] = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +169,7 @@ class ExercisePack:
     documents: tuple[ActorDocument, ...]
     information_rows: tuple[dict[str, str], ...]  # facilitator: who sees what, how late
     ambient_on: bool = True
+    writedown_level: str = "central"  # the level the participants' documents use
 
 
 # --------------------------------------------------------------------------- helpers
@@ -209,6 +216,28 @@ def information_sentences(decisions: DecisionsConfig, actor: str) -> tuple[str, 
     return tuple(lines)
 
 
+# Which lines of the resolution summary belong to which group of figures.
+_GROUP_PREFIXES = {
+    "capital": ("Losses booked", "CET1 at FOLTF", "Valuation write-down", "CET1 after", "Need:"),
+    "mrel": ("MREL requirement", "Available MREL", "Write-down at which"),
+    "losses": ("AT1 and Tier 2", "Senior non-preferred", "Senior preferred", "Uncovered deposits",
+               "Covered deposits", "Shortfall", "Liquidation", "DGS", "Time to pay"),
+    "liquidity": ("Liquidity need", "Of which requested"),
+}
+
+
+def _resolution_figures(
+    summary: ResolutionSummary, groups: Sequence[str], unit: str, day: int
+) -> tuple[Figure, ...]:
+    """The lines of the resolution summary that belong to the given groups."""
+    prefixes = tuple(prefix for group in groups for prefix in _GROUP_PREFIXES[group])
+    return tuple(
+        Figure(f"resolution_{index}", label, 0.0, day, f"{label} {value}")
+        for index, (label, value) in enumerate(summary_rows(summary, unit))
+        if prefixes and label.startswith(prefixes)
+    )
+
+
 # --------------------------------------------------------------------------- one branch
 
 
@@ -222,6 +251,7 @@ def build_branch(
     script: ScriptConfig,
     choices: Sequence[Choice],
     ambient: bool = True,
+    writedown_level: str = "central",
 ) -> BranchScript:
     """Simulate one decision path and write every actor's injects for it."""
     result = simulate(bank, params, scenario, decisions, choices)
@@ -326,6 +356,7 @@ def build_branch(
         return min(horizon, open_day + int(script.decision_window_days.value))
 
     open_days = {key: condition_day(key) for key in decisions.decisions}
+    levels = resolution_levels(bank, params, result)
     names = script.actors
     injects: dict[str, list[Inject]] = {actor: [] for actor in ACTORS}
 
@@ -431,6 +462,19 @@ def build_branch(
                 make(actor, open_day, "decision_due", "decision_due", "Exercise control",
                      text, due=due, notified=tuple(known.values()))
             )
+        if levels is not None and result.foltf_day is not None:
+            summary = levels[writedown_level]
+            tool = OUTCOME_LABELS[result.outcome].lower()
+            for item in script.resolution.values():
+                day = min(result.foltf_day + item.offset_days, end_day)
+                if actor not in item.recipients or not is_informed(actor, day):
+                    continue
+                out.append(
+                    make(actor, day, "resolution_step", item.time, item.sender,
+                         item.text.format(bank_name=bank.name, tool=tool), with_figures=False,
+                         title=item.title,
+                         resolution=_resolution_figures(summary, item.figures, bank.unit, day))
+                )
         if ambient:
             for item in script.ambient.values():
                 anchor = stage_days.get(item.anchor) if item.anchor in DECISION_STAGES else (
@@ -496,6 +540,7 @@ def build_branch(
         result=result,
         injects={actor: tuple(items) for actor, items in injects.items()},
         decision_points=tuple(points),
+        resolution=levels,
     )
 
 
@@ -520,6 +565,7 @@ def build_pack(
     script: ScriptConfig,
     paths: Sequence[tuple[str, Sequence[Choice]]],
     ambient: bool = True,
+    writedown_level: str = "central",
 ) -> ExercisePack:
     """Build the exercise pack for one or two decision paths: (name, choices) each.
 
@@ -530,7 +576,7 @@ def build_pack(
         raise ValueError("an exercise pack takes one or two decision paths")
     branches = tuple(
         build_branch("AB"[index], name, bank, params, scenario, decisions, script, choices,
-                     ambient)
+                     ambient, writedown_level)
         for index, (name, choices) in enumerate(paths)
     )
 
@@ -586,4 +632,5 @@ def build_pack(
         documents=tuple(documents),
         information_rows=information_rows,
         ambient_on=ambient,
+        writedown_level=writedown_level,
     )
