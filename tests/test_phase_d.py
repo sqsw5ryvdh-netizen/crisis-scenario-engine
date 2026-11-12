@@ -2,6 +2,7 @@
 
 import io
 import re
+from dataclasses import replace
 import shutil
 import zipfile
 from pathlib import Path
@@ -19,7 +20,7 @@ from engine.decisions import OUTCOME_LABELS, Choice, choices_of, lag_days
 from engine.export import pack_files, pack_to_zip
 from engine.model import simulate
 from engine.run import main
-from engine.schema import ACTORS, DECISION_STAGES
+from engine.schema import ACTORS, DECISION_STAGES, INTRADAY_BLOCKS, Parameter
 from engine.script import branch_code, build_pack
 
 CONFIG = load_config()
@@ -137,27 +138,70 @@ def test_weekday_labels_start_on_the_scenario_weekday(tmp_path):
 # ------------------------------------------------- the information gate (acceptance)
 
 
+def allowed_tokens(pack, actor: str) -> set[str]:
+    """Every number that may be printed in an actor's document."""
+    tokens = set()
+    for _, inject in all_injects(pack, actor):
+        for figure in inject.figures + inject.headline + inject.notified:
+            tokens.update(FIGURE_TOKEN.findall(figure.text))
+            tokens.update(FIGURE_TOKEN.findall(figure.threshold_text))
+    return tokens
+
+
 def check_gate(pack, actor: str) -> int:
-    """Every figure an actor is given is in its set, old enough, and real. Returns the count."""
+    """Every figure an actor is given is one it may have, old enough, and real.
+
+    - Regular report: from the actor's own set, as old as its delay.
+    - Notification figures: those that triggered a stage it is told about, of that day.
+    - Figures recalled in a decision inject: only ones it was notified of before.
+    Returns the number of figures checked.
+    """
     info = DECISIONS.information[actor]
     checked = 0
-    for branch, inject in all_injects(pack, actor):
+    for branch in pack.branches:
         result = branch.result
         table = result.table.set_index("day")
-        stage_days = {e.kind: e.day for e in result.events if e.kind in DECISION_STAGES}
-        informed = 0 if info.informed_from is None else stage_days.get(info.informed_from)
+        stage_events = {e.kind: e for e in result.events if e.kind in DECISION_STAGES}
+        informed = 0 if info.informed_from is None else (
+            stage_events[info.informed_from].day if info.informed_from in stage_events else None
+        )
         faster = dict(result.faster_reporting_from).get(actor)
-        if inject.figures or inject.kind in DECISION_STAGES or inject.decision_due:
-            assert informed is not None and inject.day >= informed, (actor, inject)
-        if inject.kind in DECISION_STAGES and info.informed_from is not None:
-            assert STAGE_OF[inject.kind] >= STAGE_OF[info.informed_from]
-        for figure in inject.figures:
-            assert figure.name in info.figures, (actor, figure.name)
-            lag = lag_days(info, inject.day, faster)
-            assert figure.as_of_day <= max(0, inject.day - lag), (actor, inject.kind, figure)
-            assert figure.value == pytest.approx(table.loc[figure.as_of_day, figure.name])
-            checked += 1
-        assert len({figure.as_of_day for figure in inject.figures}) <= 1
+        told: dict[str, object] = {}
+        for inject in branch.injects[actor]:
+            if inject.figures or inject.headline or inject.decision_due:
+                assert informed is not None and inject.day >= informed, (actor, inject)
+            # Regular report.
+            for figure in inject.figures:
+                assert figure.name in info.figures, (actor, figure.name)
+                lag = lag_days(info, inject.day, faster)
+                assert figure.as_of_day <= max(0, inject.day - lag), (actor, inject.kind, figure)
+                expected = table.loc[figure.as_of_day, figure.name]
+                if figure.block:
+                    assert info.intraday
+                    key = next(k for k, label in INTRADAY_BLOCKS.items() if label == figure.block)
+                    expected *= getattr(CONFIG.model, f"intraday_share_{key}").value
+                assert figure.value == pytest.approx(expected)
+                checked += 1
+            assert len({figure.as_of_day for figure in inject.figures}) <= 1
+            # Notification figures.
+            if inject.headline:
+                assert inject.stages and inject.figures == ()
+                triggered = {
+                    name: value
+                    for kind in inject.stages
+                    for name, value, _ in stage_events[kind].figures
+                }
+                for kind in inject.stages:
+                    assert stage_events[kind].day == inject.day
+                    if info.informed_from is not None:
+                        assert STAGE_OF[kind] >= STAGE_OF[info.informed_from]
+                for figure in inject.headline:
+                    assert figure.as_of_day == inject.day
+                    assert figure.value == pytest.approx(triggered[figure.name])
+                    told[figure.name] = figure
+                    checked += 1
+            for figure in inject.notified:
+                assert told.get(figure.name) == figure and figure.as_of_day <= inject.day
     return checked
 
 
@@ -170,29 +214,83 @@ def test_resolution_authority_document_shows_only_what_it_had_at_that_time(accep
     """Acceptance: a reader with only this document cannot see figures the authority lacked."""
     files = pack_files(acceptance, SCRIPT, DECISIONS)
     text = docx_text(files["participants/resolution_authority.docx"])
-    allowed = set()
-    for _, inject in all_injects(acceptance, "resolution_authority"):
-        for figure in inject.figures:
-            allowed.update(FIGURE_TOKEN.findall(figure.text))
     printed = set(FIGURE_TOKEN.findall(text))
+    allowed = allowed_tokens(acceptance, "resolution_authority")
     assert printed and printed <= allowed, printed - allowed
-    # Figures of other actors are absent: the same-day liquidity buffer and the LCR proxy.
+    # Figures of other actors are absent: the bank's same-day liquidity buffer, for one.
     late = acceptance.branches[0].result.table.set_index("day")
     assert f"{late.loc[1, 'liquidity_buffer']:.2f}" not in text
     body = text.split("Glossary")[0]  # the glossary explains terms; it holds no figures
-    assert "LCR proxy" not in body and "Liquidity buffer" not in body
+    assert "Liquidity buffer" not in body and "Unencumbered collateral" not in body
     # It is told nothing about the recovery breach, which comes before it is informed.
-    kinds = [inject.kind for _, inject in all_injects(acceptance, "resolution_authority")]
-    assert "recovery" not in kinds and "early_intervention" in kinds
-    # On day 1 it holds day-0 figures: deposits are still at their opening level.
+    injects = [inject for _, inject in all_injects(acceptance, "resolution_authority")]
+    stages = {stage for inject in injects for stage in inject.stages}
+    assert "recovery" not in stages and "early_intervention" in stages
+    # Its first notification comes from the competent authority, with that day's triggers.
     shared = next(d for d in acceptance.documents if d.actor == "resolution_authority").shared
-    first = next(i for i in shared if i.kind == "early_intervention")
-    assert (first.day, first.figures[0].as_of_day) == (1, 0)
-    deposits = next(f for f in first.figures if f.name == "deposits_total")
-    assert deposits.value == pytest.approx(late.loc[0, "deposits_total"])
-    assert f"{late.loc[1, 'deposits_total']:.2f}" not in docx_text(
-        files["participants/resolution_authority.docx"]
-    ).split("Branch A")[0]
+    first = next(i for i in shared if i.headline)
+    assert (first.day, first.sender, first.time) == (1, "Competent authority", "19:00")
+    assert {f.as_of_day for f in first.headline} == {1} and first.figures == ()
+    # Its regular report is one day old whenever it gets one.
+    reports = [i for i in injects if i.figures and i.day >= 1]
+    assert reports and all(i.day - i.figures[0].as_of_day == 1 for i in reports)
+
+
+def test_no_actor_is_told_of_a_stage_next_to_figures_that_deny_it(acceptance):
+    """A stage notification carries the figures that triggered it and no older table."""
+    for actor in ACTORS:
+        for branch, inject in all_injects(acceptance, actor):
+            if not inject.stages:
+                continue
+            assert inject.headline and inject.figures == ()
+            events = {e.kind: e for e in branch.result.events}
+            for figure in inject.headline:
+                assert figure.as_of_day == inject.day
+                if figure.name != "unmet_outflow":
+                    assert figure.threshold_text
+            if "likely_to_fail" in inject.stages:
+                names = {name for name, _, _ in events["likely_to_fail"].figures}
+                assert names <= {figure.name for figure in inject.headline}
+    # In the fast run the flag is raised on day 1 with 15.2% of deposits already gone.
+    authority = [i for _, i in all_injects(acceptance, "competent_authority") if i.stages][0]
+    loss = next(f for f in authority.headline if f.name == "cum_deposit_loss_pct")
+    assert loss.value == pytest.approx(15.2, abs=0.05)
+
+
+def test_notifications_that_arrive_together_are_one_inject(acceptance):
+    for actor in ACTORS:
+        for branch in acceptance.branches:
+            stage_injects = [i for i in branch.injects[actor] if i.stages]
+            slots = [(i.day, i.time) for i in stage_injects]
+            assert len(slots) == len(set(slots))
+            told = [stage for i in stage_injects for stage in i.stages]
+            assert len(told) == len(set(told))  # each stage change is notified once
+    bank = [i for i in acceptance.branches[0].injects["bank_management"] if i.stages][0]
+    assert bank.stages == ("recovery", "early_intervention", "likely_to_fail")
+    assert bank.text.count("\n") == 2 and bank.title == "The bank is likely to fail"
+    names = [figure.name for figure in bank.headline]
+    assert len(names) == len(set(names))  # one table, each figure once
+
+
+def test_stage_notifications_flow_from_the_bank_to_the_authority_to_the_others(acceptance):
+    expected = {
+        "bank_management": ("18:00", None),
+        "competent_authority": ("18:30", "Bank management"),
+        "central_bank": ("19:00", "Competent authority"),
+        "resolution_authority": ("19:00", "Competent authority"),
+        "deposit_guarantee_scheme": ("19:00", "Competent authority"),
+    }
+    for actor, (time, sender) in expected.items():
+        stage_injects = [i for _, i in all_injects(acceptance, actor) if i.stages]
+        assert stage_injects
+        for inject in stage_injects:
+            assert inject.time == time
+            if sender is None:
+                assert "treasury" in inject.sender  # the bank's own functions
+            else:
+                assert inject.sender == sender and sender in inject.text
+    assert SCRIPT.clock["stage"] < SCRIPT.clock["stage_relay"] < SCRIPT.clock["stage_relay_others"]
+    assert SCRIPT.clock["stage_relay_others"] < SCRIPT.clock["decision_due"]
 
 
 @pytest.mark.parametrize("actor", ACTORS)
@@ -202,13 +300,7 @@ def test_information_gate_holds_for_other_banks_scenarios_and_paths(bank, scenar
     pack = pack_for(bank, scenario, "support_package", "early_foltf_liquidation")
     check_gate(pack, actor)
     text = docx_text(pack_files(pack, SCRIPT, DECISIONS)[f"participants/{actor}.docx"])
-    allowed = {
-        token
-        for _, inject in all_injects(pack, actor)
-        for figure in inject.figures
-        for token in FIGURE_TOKEN.findall(figure.text)
-    }
-    assert set(FIGURE_TOKEN.findall(text)) <= allowed
+    assert set(FIGURE_TOKEN.findall(text)) <= allowed_tokens(pack, actor)
 
 
 def test_daily_reporting_gives_the_competent_authority_same_day_figures():
@@ -240,8 +332,14 @@ def test_daily_reporting_gives_the_competent_authority_same_day_figures():
 def test_an_actor_cannot_decide_before_it_is_informed():
     # The scheme is informed only when the bank is likely to fail, a day after early
     # intervention in this run, although its decision is open from early intervention.
+    # A stricter flag (one day of liquidity instead of three) puts a gap between the stages.
+    scenario = CONFIG.scenarios["geopolitical"]
+    stricter = Parameter(value=1, unit="days", source="ASSUMPTION")
+    scenario = scenario.model_copy(
+        update={"overrides": {**scenario.overrides, "likely_to_fail_survival_days": stricter}}
+    )
     result = simulate(
-        CONFIG.banks["retail"], CONFIG.model, CONFIG.scenarios["geopolitical"], DECISIONS,
+        CONFIG.banks["retail"], CONFIG.model, scenario, DECISIONS,
         (Choice("prepare_payout", "prepare", 0),),
     )
     days = {e.kind: e.day for e in result.events}
@@ -283,6 +381,9 @@ def test_decision_due_gives_options_deadline_and_coordination(acceptance):
             ]
             assert due.deadline_day >= inject.day
             assert due.question == SCRIPT.questions[due.decision]
+            assert {f.name for f in inject.notified} <= {
+                f.name for _, i in all_injects(acceptance, actor) for f in i.headline
+            }
             coordination = SCRIPT.coordination[due.decision]
             assert due.consult == tuple(SCRIPT.actors[a] for a in coordination.consult)
             assert due.inform == tuple(SCRIPT.actors[a] for a in coordination.inform)
@@ -314,13 +415,28 @@ def test_a_decision_is_offered_only_when_it_is_open(acceptance):
     assert "dgs_payout" in due(liquidation, "deposit_guarantee_scheme")
 
 
-def test_deadline_is_the_last_close_before_the_default_of_the_no_decision_path(acceptance):
-    late = acceptance.branches[0].result
-    assert late.failure_day == 5
-    for branch in acceptance.branches:
+def test_deadlines_are_relative_to_the_branch_being_read(acceptance):
+    late, early = acceptance.branches
+    assert (late.result.failure_day, early.result.end_day) == (5, 4)
+    # Branch A ends in a default on day 5, branch B in resolution on day 4.
+    for branch, last_day in ((late, 5), (early, 4)):
         for point in branch.decision_points:
-            assert point.deadline_day == max(point.open_day, late.failure_day - 1)
-    # Without a default on the no-decision path, a fixed window applies.
+            assert point.deadline_day == max(point.open_day, last_day - 1)
+        for actor in ACTORS:
+            for inject in branch.injects[actor]:
+                if inject.decision_due:
+                    assert inject.decision_due.deadline_day == max(inject.day, last_day - 1)
+    # In the shared part the reader does not know the branch: the earlier deadline is shown.
+    for document in acceptance.documents:
+        for inject in document.shared:
+            if inject.decision_due:
+                assert inject.decision_due.deadline_day == 3
+                assert inject.decision_due.deadline_shared
+        for _, injects in document.branches:
+            assert not any(i.decision_due.deadline_shared for i in injects if i.decision_due)
+    text = docx_text(pack_files(acceptance, SCRIPT, DECISIONS)["participants/central_bank.docx"])
+    assert "The branches have different deadlines; this is the earlier one." in text
+    # A branch that runs to the horizon has a fixed window instead.
     window = int(SCRIPT.decision_window_days.value)
     slow = pack_for("universal", "slow_burn", "act_late").branches[0]
     assert slow.result.failure_day is None and slow.decision_points
@@ -355,10 +471,15 @@ def test_documents_share_the_part_before_the_branches_diverge(acceptance):
     for document in acceptance.documents:
         a, b = late.injects[document.actor], early.injects[document.actor]
         n = len(document.shared)
-        assert n >= 2 and a[:n] == b[:n] == document.shared
+        strip = lambda items: [  # noqa: E731
+            replace(i, decision_due=replace(i.decision_due, deadline_day=0, deadline_shared=False))
+            if i.decision_due else i
+            for i in items
+        ]
+        assert n >= 2 and strip(a[:n]) == strip(b[:n]) == strip(document.shared)
         assert [title for title, _ in document.branches] == ["Branch A", "Branch B"]
         assert document.branches[0][1] == a[n:] and document.branches[1][1] == b[n:]
-        assert n == len(a) or n == len(b) or a[n] != b[n]
+        assert n == len(a) or n == len(b) or strip([a[n]]) != strip([b[n]])
     # The two branches part after the first evening: day 1 is shared, day 2 is not.
     bank = next(d for d in acceptance.documents if d.actor == "bank_management")
     assert max(i.day for i in bank.shared) == 1
@@ -494,10 +615,12 @@ def test_cli_exports_the_pack(tmp_path, capsys):
 
 def test_app_script_tab_previews_one_actor_and_offers_one_download():
     at = AppTest.from_file(APP_PATH)
-    at.session_state["demo_on"] = False
-    at.session_state["view"] = demo.TAB_SCRIPT
+    for key, value in dict(
+        demo_on=False, view=demo.TAB_SCRIPT, bank="universal", scenario="fast_run",
+        decision_path="act_late", script_branch="act_late",
+    ).items():
+        at.session_state[key] = value
     at.run(timeout=60)
-    at.selectbox(key="bank").set_value("universal").run(timeout=60)
     assert not at.exception
     assert len(at.info) == 1  # both branches are "authorities act late": a single branch
     at.selectbox(key="decision_path").set_value("early_foltf").run(timeout=60)
@@ -508,5 +631,5 @@ def test_app_script_tab_previews_one_actor_and_offers_one_download():
     text = "\n".join(m.value for m in at.markdown)
     assert "Branch A" in text and "Branch B" in text
     assert "You receive nothing about the bank before this stage" in text
-    assert "LCR proxy" not in text and "Liquidity buffer" not in text
+    assert "Liquidity buffer" not in text
     assert "`D7-b` Bail-in" in text

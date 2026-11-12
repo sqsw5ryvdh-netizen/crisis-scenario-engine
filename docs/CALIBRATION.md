@@ -273,7 +273,7 @@ share is computed.
 
 Cumulative deposit loss in the central (deterministic) run, as a share of opening deposits,
 from the `dep_loss%` column of `python -m engine.run --bank <bank> --scenario <scenario>` with
-the configuration of the phase B2 commit (SPEC_V2). A run stops at the payments default day.
+the configuration of the phase C1 commit (SPEC_V2). A run stops at the payments default day.
 
 | Scenario | Bank | After day 1 | After day 2 | After day 5 | At the end (day) | Largest one-day loss |
 |---|---|---|---|---|---|---|
@@ -281,10 +281,10 @@ the configuration of the phase B2 commit (SPEC_V2). A run stops at the payments 
 | Fast run | Retail | 9.4% | 23.8% | 40.7% | 40.7% (5) | 14.4% |
 | Fast run | Digital | 12.5% | 28.8% | - | 28.8% (2) | 16.3% |
 | Fast run | Specialised | 16.4% | 42.6% | - | 62.0% (4) | 26.2% |
-| Slow burn | Universal | 0.7% | 1.3% | 3.5% | 24.4% (30) | 1.1% |
-| Slow burn | Retail | 0.4% | 0.8% | 2.1% | 13.4% (30) | 0.6% |
-| Slow burn | Digital | 0.5% | 1.1% | 2.8% | 17.7% (30) | 0.8% |
-| Slow burn | Specialised | 0.7% | 1.4% | 3.8% | 29.3% (30) | 1.3% |
+| Slow burn | Universal | 0.8% | 1.7% | 4.5% | 24.5% (30) | 1.9% |
+| Slow burn | Retail | 0.5% | 1.0% | 2.7% | 13.5% (30) | 0.7% |
+| Slow burn | Digital | 0.7% | 1.4% | 3.6% | 17.8% (30) | 1.3% |
+| Slow burn | Specialised | 0.9% | 1.8% | 4.9% | 29.4% (30) | 2.3% |
 
 ### 7.5 Reading
 
@@ -363,3 +363,21 @@ Outcome of the 16 bank and scenario pairs after these changes: `docs/STATUS.md`.
   when, on each of the last 3 days, the flag conditions do not hold, the liquidity buffer is
   positive and the daily outflow is below 0.2% of opening deposits. Both numbers are
   `ASSUMPTION`.
+
+## 11. Changes in SPEC_V2 phase C1
+
+- **Weekend rules**, in `config/model.yaml`: on a weekend day 30% of a business day's
+  withdrawal requests still come in (range 10% to 60%), `ASSUMPTION`. They are paid from cash
+  only; the rest waits for Monday.
+- **Slow-burn severity: 0.3 -> 0.38** (range 0.25 to 0.6), in `config/scenarios.yaml`.
+  Weekends slow a run, so the target of section 8 (about a quarter of the universal
+  archetype's deposits lost in 30 days, the order of the documented case) needs a higher
+  severity. The universal archetype now loses 24.5%. Still an order-of-magnitude check.
+- **Intraday shares**, in `config/model.yaml`: 30% of a day's outflow in the morning, 25% at
+  midday, 30% in the afternoon and 15% after 18:00. `ASSUMPTION`, used only to allocate the
+  daily figure for display and for bank management's injects.
+- **Start weekday**: the geopolitical shock starts on a Wednesday so that the showcase run
+  reaches its second Friday on day 10. A design choice, not data.
+- The table in section 7.4 was re-run: the fast-run rows are unchanged (the run is over
+  before the first weekend) and the slow-burn rows reflect the new severity. In the slow
+  burn the largest one-day loss is now a Monday, when the weekend's requests are paid.

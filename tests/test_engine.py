@@ -223,22 +223,34 @@ def test_queue_is_released_on_the_first_day_after_the_outage(bank):
     queued = table.loc[end, "queued_withdrawals"]
     assert table.loc[end + 1, "outflow_deposits"] > queued
     assert table.loc[end + 1, "queued_withdrawals"] == 0
-    assert (table.loc[end + 1 :, "queued_withdrawals"] == 0).all()
+    # Afterwards a queue can only build up on a weekend, when cash runs out.
+    later = table.loc[end + 1 :]
+    assert (later.loc[~later["weekend"], "queued_withdrawals"] == 0).all()
 
 
 @pytest.mark.parametrize("scenario", ["fast_run", "slow_burn", "geopolitical"])
 def test_no_queue_without_an_outage(scenario):
+    # On business days, that is. A weekend can leave requests waiting for Monday.
     for bank in CONFIG.banks:
-        assert run(bank, scenario).table["queued_withdrawals"].abs().max() == 0
+        table = run(bank, scenario).table
+        assert table.loc[~table["weekend"], "queued_withdrawals"].abs().max() == 0
 
 
 @pytest.mark.parametrize("bank", list(CONFIG.banks))
 def test_closed_wholesale_market_rolls_nothing_over(bank):
     table = run(bank, "geopolitical").table.set_index("day")
     assert (table["rollover_fraction"] == 0).all()
+    # A maturity that falls on a weekend is paid on the Monday.
+    due: dict[int, float] = {}
     for day, amount in CONFIG.banks[bank].liabilities.wholesale_funding.maturing.items():
+        pay_day = day
+        while pay_day in table.index and table.loc[pay_day, "weekend"]:
+            pay_day += 1
+        due[pay_day] = due.get(pay_day, 0.0) + amount
+    for day, amount in due.items():
         if day in table.index and table.loc[day, "unmet_outflow"] < TOL:
             assert table.loc[day, "outflow_wholesale"] == pytest.approx(amount)
+    assert (table.loc[table["weekend"], "outflow_wholesale"] == 0).all()
 
 
 def test_wider_haircuts_cost_more_capital_per_unit_sold():

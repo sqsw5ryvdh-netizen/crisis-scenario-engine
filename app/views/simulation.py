@@ -9,19 +9,18 @@ from streamlit.errors import StreamlitAPIException
 from app import demo
 from app.charts import (
     TRIGGERS,
-    build_contagion_chart,
     build_failure_distribution,
     build_path_comparison,
     build_timeline,
 )
 from engine.config import load_config
-from engine.contagion import similarity_factor, simulate_contagion
 from engine.decisions import (
     OPEN_OUTCOMES,
     OUTCOME_LABELS,
     Choice,
     choices_of,
     decision_log_rows,
+    intraday_allocation,
     scorecard_rows,
 )
 from engine.export import pack_to_zip
@@ -123,13 +122,16 @@ def decision_panel(catalogue, horizon: int) -> tuple[Choice, ...]:
                 key=f"dec:{key}:option",
             )
             if option != decision.default_option:
+                day_key = f"dec:{key}:day"
+                # A value loaded from a named path is already in the session state.
+                start = {} if day_key in st.session_state else {"value": 1}
                 day = st.number_input(
                     f"{decision.name}: decide from the close of day",
                     min_value=0,
                     max_value=horizon,
-                    value=1,
                     step=1,
-                    key=f"dec:{key}:day",
+                    key=day_key,
+                    **start,
                 )
                 choices.append(Choice(key, option, int(day)))
     return tuple(choices)
@@ -193,7 +195,7 @@ def _stop_playback() -> None:
 
 
 @st.fragment
-def timeline_view(result, horizon, unit, band_data, n_runs) -> None:
+def timeline_view(result, horizon, unit, band_data, n_runs, start_weekday, weekends, params) -> None:
     """Timeline revealed up to a chosen day. A fragment, so playback redraws only this part."""
     table = result.table
     last_day = int(table["day"].max())
@@ -215,7 +217,11 @@ def timeline_view(result, horizon, unit, band_data, n_runs) -> None:
 
     chart_column, day_column = st.columns([3, 1])
     chart_column.plotly_chart(
-        build_timeline(result, horizon, unit, band_data, until_day=day), width="stretch"
+        build_timeline(
+            result, horizon, unit, band_data, until_day=day,
+            start_weekday=start_weekday, weekends=weekends,
+        ),
+        width="stretch",
     )
     chart_column.caption(
         f"Line: central run. Shaded band, shown on the last day: 5th to 95th percentile of "
@@ -223,10 +229,20 @@ def timeline_view(result, horizon, unit, band_data, n_runs) -> None:
     )
     row = table[table["day"] == day].iloc[0]
     with day_column:
-        st.markdown(f"**Day {day}: {_status_label(row['status'])}**")
+        weekday = f", {row['weekday']}" if row["weekday"] else ""
+        st.markdown(f"**Day {day}{weekday}: {_status_label(row['status'])}**")
+        if row["weekend"]:
+            st.caption("Weekend: no market sales, withdrawals paid from cash only.")
+        if row["queued_withdrawals"] > 0:
+            st.metric(f"Requested, not yet settled ({unit})", f"{row['queued_withdrawals']:.2f}")
         st.metric(f"Liquidity buffer ({unit})", f"{row['liquidity_buffer']:.2f}")
         st.metric("Deposits lost", f"{row['cum_deposit_loss_pct']:.1f}%")
         st.metric("CET1 ratio", f"{100 * row['cet1_ratio']:.1f}%")
+        if row["outflow_total"] > 0:
+            st.markdown("**Outflow by time of day**")
+            for label, amount, _ in intraday_allocation(row["outflow_total"], params):
+                st.markdown(f"- {label}: {amount:.2f}")
+            st.caption("An allocation of the daily figure with fixed shares, not a simulation.")
         st.markdown("**Events so far**")
         events = [event for event in result.events if event.day <= day]
         if not events:
@@ -250,6 +266,11 @@ def timeline_view(result, horizon, unit, band_data, n_runs) -> None:
 # ------------------------------------------------- page
 
 config = get_config()
+showcase = config.script.showcase
+if "decision_path" not in st.session_state:
+    # The app opens on the showcase run, with its decision path loaded.
+    st.session_state["decision_path"] = showcase.path
+    _load_path()
 st.session_state.setdefault("demo_on", True)
 st.session_state.setdefault("demo_step", 0)
 
@@ -260,7 +281,7 @@ with st.sidebar:
         bank_key = st.selectbox(
             "Bank archetype",
             list(config.banks),
-            index=list(config.banks).index(demo.DEMO_BANK),
+            index=list(config.banks).index(showcase.bank),
             format_func=lambda k: config.banks[k].name,
             key="bank",
         )
@@ -268,7 +289,7 @@ with st.sidebar:
         scenario_key = st.selectbox(
             "Trigger scenario",
             list(config.scenarios),
-            index=list(config.scenarios).index(demo.DEMO_SCENARIO),
+            index=list(config.scenarios).index(showcase.scenario),
             format_func=lambda k: config.scenarios[k].name,
             key="scenario",
         )
@@ -319,7 +340,8 @@ with st.sidebar:
         overrides[name] = recentre(name, current, shown / factor)
 
     st.header("Decisions")
-    choices = decision_panel(config.decisions, int(config.model.horizon_days.value))
+    with st.container(key="ctl_decisions"):
+        choices = decision_panel(config.decisions, int(config.model.horizon_days.value))
 
     st.header("Uncertainty")
     n_runs = int(config.model.monte_carlo_runs.value)
@@ -360,6 +382,7 @@ scenario = scenario.model_copy(
         "overrides": overrides,
     }
 )
+weekends = resolved.weekend_rules_on.value >= 1
 result = simulate(bank, config.model, scenario, config.decisions, choices)
 reference = simulate(start_bank, config.model, start_scenario, config.decisions, choices)
 table = result.table
@@ -429,7 +452,6 @@ st.caption(
     funding_tab,
     uncertainty_tab,
     script_tab,
-    contagion_tab,
 ) = st.tabs(demo.TABS, key="view", on_change="rerun")
 
 if not timeline_tab.open:
@@ -437,7 +459,10 @@ if not timeline_tab.open:
 
 if timeline_tab.open:
     with timeline_tab:
-        timeline_view(result, horizon, bank.unit, bands(monte_carlo), n_runs)
+        timeline_view(
+            result, horizon, bank.unit, bands(monte_carlo), n_runs,
+            scenario.start_weekday, weekends, resolved,
+        )
 
 if decisions_tab.open:
     with decisions_tab:
@@ -459,7 +484,10 @@ if decisions_tab.open:
         )
         other_name = paths[reference_key].name
         st.plotly_chart(
-            build_path_comparison(other, result, other_name, "Selected path", horizon, bank.unit),
+            build_path_comparison(
+                other, result, other_name, "Selected path", horizon, bank.unit,
+                scenario.start_weekday, weekends,
+            ),
             width="stretch",
         )
         st.subheader("Outcome scorecard")
@@ -517,7 +545,10 @@ if uncertainty_tab.open:
             f"Number of the {n_runs} runs in which the bank defaults on payments on each day."
         )
         st.plotly_chart(
-            build_failure_distribution(failure_day_counts(monte_carlo), horizon), width="stretch"
+            build_failure_distribution(
+                failure_day_counts(monte_carlo), horizon, scenario.start_weekday
+            ),
+            width="stretch",
         )
         st.caption(
             "Every parameter and its range is listed on the Assumptions page; most are "
@@ -535,10 +566,15 @@ if script_tab.open:
         other_key = st.selectbox(
             "Second branch of the script",
             list(paths),
-            index=list(paths).index(config.decisions.default_path),
+            index=list(paths).index(showcase.compare_path),
             format_func=lambda k: paths[k].name,
             key="script_branch",
             help="The script covers this path and the one selected in the sidebar.",
+        )
+        ambient_on = st.checkbox(
+            "Include ambient injects (press, politics, other authorities; no effect on figures)",
+            value=True,
+            key="script_ambient",
         )
         other_choices = choices_of(paths[other_key])
         branches = [("Path selected in the sidebar", choices)]
@@ -546,7 +582,10 @@ if script_tab.open:
             branches.insert(0, (paths[other_key].name, other_choices))
         else:
             st.info("Both branches are the same path: the script has a single branch.")
-        pack = build_pack(bank, config.model, scenario, config.decisions, config.script, branches)
+        pack = build_pack(
+            bank, config.model, scenario, config.decisions, config.script, branches,
+            ambient=ambient_on,
+        )
         with st.container(key="ctl_export"):
             st.download_button(
                 "Download the exercise pack (.zip)",
@@ -577,9 +616,25 @@ if script_tab.open:
                 when = f"Day {inject.day}" + (f", {inject.weekday}" if inject.weekday else "")
                 with st.expander(f"{when}, {inject.time} - {inject.title}"):
                     st.markdown(f"*From: {inject.sender}*")
-                    st.write(inject.text)
+                    for line in inject.text.split("\n"):
+                        st.write(line)
+                    if inject.headline:
+                        st.caption(
+                            "Figures behind this notification, as of the close of day "
+                            f"{inject.headline[0].as_of_day}, as passed on by the sender"
+                        )
+                        for figure in inject.headline:
+                            limit = f" (threshold {figure.threshold_text})" if figure.threshold_text else ""
+                            st.markdown(f"- {figure.text}{limit}")
+                    if inject.notified:
+                        st.caption("Told in notifications so far")
+                        for figure in inject.notified:
+                            st.markdown(f"- {figure.text}, as of day {figure.as_of_day}")
                     if inject.figures:
-                        st.caption(f"Figures as of the close of day {inject.figures[0].as_of_day}")
+                        st.caption(
+                            "Latest regular report, as of the close of day "
+                            f"{inject.figures[0].as_of_day}"
+                        )
                         for figure in inject.figures:
                             st.markdown(f"- {figure.text}")
                     due = inject.decision_due
@@ -588,74 +643,9 @@ if script_tab.open:
                         for option in due.options:
                             st.markdown(f"- `{option.branch_code}` {option.name}")
                         st.markdown(
-                            f"**Decide by** the close of day {due.deadline_day}. "
+                            f"**Decide by** the close of day {due.deadline_day}"
+                            + (" (the earlier of the two branches). " if due.deadline_shared else ". ")
+                            + 
                             f"**Consult first:** {', '.join(due.consult) or 'nobody'}. "
                             f"**Inform afterwards:** {', '.join(due.inform) or 'nobody'}."
                         )
-
-
-def _outcome(run) -> str:
-    stage = run.table["status"].iloc[-1].replace("_", " ")
-    if run.failure_day is not None:
-        return f"Payments default day {run.failure_day}"
-    return f"No payments default ({stage})"
-
-
-if contagion_tab.open:
-    with contagion_tab:
-        st.subheader("Contagion to a second bank")
-        st.caption(
-            "A second bank in calm conditions is hit by news about the first bank, one day "
-            "after each trigger stage. The shock is scaled by how similar the two banks are."
-        )
-        second_column, country_column = st.columns(2)
-        second_key = second_column.selectbox(
-            "Second bank archetype",
-            list(config.banks),
-            index=list(config.banks).index(bank_key),
-            format_func=lambda k: config.banks[k].name,
-            # Keyed by the first bank, so it returns to "same archetype" when that changes.
-            key=f"second_bank:{bank_key}",
-        )
-        same_country = country_column.checkbox(
-            "Same country as the first bank", value=True, key="same_country"
-        )
-        similarity = similarity_factor(second_key == bank_key, same_country, config.model)
-        contagion = simulate_contagion(
-            bank,
-            scenario,
-            config.banks[second_key],
-            config.scenarios["baseline"],
-            config.model,
-            similarity,
-        )
-        similarity_metric, alone_metric, hit_metric = st.columns(3)
-        similarity_metric.metric(
-            "Similarity",
-            f"{similarity:.0%}",
-            help="Same archetype and same country each add to the similarity. "
-            "At 0% nothing spreads.",
-        )
-        alone_metric.metric(
-            "Second bank deposit loss, without contagion",
-            f"{contagion.second_alone.table['cum_deposit_loss_pct'].iloc[-1]:.1f}%",
-            help=_outcome(contagion.second_alone),
-        )
-        hit_metric.metric(
-            "Second bank deposit loss, with contagion",
-            f"{contagion.second.table['cum_deposit_loss_pct'].iloc[-1]:.1f}%",
-            help=_outcome(contagion.second),
-        )
-        st.write(
-            f"Outcome for the second bank: **{_outcome(contagion.second)}** with contagion, "
-            f"**{_outcome(contagion.second_alone)}** without."
-        )
-        if contagion.events:
-            st.plotly_chart(build_contagion_chart(contagion, horizon), width="stretch")
-            for event in contagion.events:
-                st.markdown(f"- Day {event.day}: {event.headline}")
-        else:
-            st.info(
-                "Nothing spreads to the second bank: either the two banks have no similarity, "
-                "or the first bank reaches no trigger stage."
-            )

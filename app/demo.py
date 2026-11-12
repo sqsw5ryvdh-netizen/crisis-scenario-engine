@@ -9,9 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-# Selection the app opens on, which is the one the demo story uses.
-DEMO_BANK = "digital"
-DEMO_SCENARIO = "fast_run"
+# The run the app opens on and the demo follows is set in config/script.yaml (`showcase`).
 
 # Seconds each day stays on screen during playback.
 PLAYBACK_SECONDS = 0.5
@@ -22,8 +20,8 @@ TAB_DECISIONS = "Decisions"
 TAB_FUNDING = "Funding"
 TAB_UNCERTAINTY = "Uncertainty"
 TAB_SCRIPT = "Exercise script"
-TAB_CONTAGION = "Contagion"
-TABS = [TAB_TIMELINE, TAB_DECISIONS, TAB_FUNDING, TAB_UNCERTAINTY, TAB_SCRIPT, TAB_CONTAGION]
+# The contagion tab is hidden until SPEC_V2 phase F replaces it; its engine code stays.
+TABS = [TAB_TIMELINE, TAB_DECISIONS, TAB_FUNDING, TAB_UNCERTAINTY, TAB_SCRIPT]
 
 HIGHLIGHT_COLOR = "#2a78d6"
 
@@ -39,34 +37,36 @@ class DemoStep:
 DEMO_STEPS = (
     DemoStep(
         "Pick a bank archetype",
-        "In the sidebar, choose the bank that will be in crisis. The demo uses the digital "
-        "deposit bank. All banks are fictitious.",
+        "In the sidebar, choose the bank that will be in crisis. The demo uses the mid-size "
+        "retail bank. All banks are fictitious.",
         "ctl_bank",
     ),
     DemoStep(
         "Pick a trigger",
-        "In the sidebar, choose what starts the crisis. The demo uses the fast digital run.",
+        "In the sidebar, choose what starts the crisis. The demo uses the geopolitical shock, "
+        "which starts on a Wednesday.",
         "ctl_scenario",
     ),
     DemoStep(
         "Press run",
-        "Press Run the simulation. The engine computes the 30-day crisis and its uncertainty "
-        "range.",
+        "Press Run the simulation. The engine computes the crisis day by day and its "
+        "uncertainty range.",
         "ctl_run",
     ),
     DemoStep(
         "Watch the crisis unfold",
-        "The crisis plays day by day. Press Play to see it again, or drag the day slider to "
-        "stop on a day. The stages appear as dashed lines, up to the payments default.",
+        "The crisis plays day by day, across a weekend (shaded). Press Play to see it again, "
+        "or drag the day slider. The stages appear as dashed lines; on the second Friday the "
+        "bank is declared failing or likely to fail.",
         "ctl_play",
         TAB_TIMELINE,
     ),
     DemoStep(
-        "Move a slider",
-        "In the sidebar, move Uninsured deposits and watch the payments default day. The line under "
-        "it compares with the starting values.",
-        "ctl_uninsured",
-        TAB_TIMELINE,
+        "Change a decision",
+        "In the sidebar, under Decisions, pick another decision path, for example "
+        "Authorities act late. This tab compares the outcome with the other branch.",
+        "ctl_decisions",
+        TAB_DECISIONS,
     ),
     DemoStep(
         "Export the exercise script",

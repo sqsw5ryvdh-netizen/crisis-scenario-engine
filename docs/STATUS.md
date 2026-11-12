@@ -1,35 +1,38 @@
 # STATUS
 
-Last completed: **SPEC_V2 phase D - Exercise script, rewritten** (2026-11-11). Done before: M0-M6, phases A, B and B2. Next by agreement: phase C, then E.
+Last completed: **SPEC_V2 phase C1 - Calendar and script fixes** (2026-11-13). Done before: M0-M6, phases A, B, B2 and D. Next: phase C2 (resolution), after review. Then E.
 
-## What was built in phase D
-- **Information sets** (`config/decisions.yaml`, `information`): for each actor, the figures it receives, how old they are, from which stage it is informed, and who tells it. Bank management and central bank: same day. Competent authority: one day old, same day once "require daily reporting" is in effect. Resolution authority: nothing before early intervention, then one day old. Deposit guarantee scheme: only once the bank is likely to fail.
-- **Injects per actor** (`engine/script.py`): day, weekday, time, sender, text, the actor's own figures with their date, and for a decision the question, the options with branch codes, the deadline, who to consult and who to inform.
-- **Two branches in one pack**: each actor's document has a shared part, then one section per branch. Participant documents show branch codes only, not outcomes or path names.
-- **Facilitator pack**: scorecards side by side, who sees what and how late, full-information timeline per branch, decisions taken, every decision point with where each option leads, coordination steps, debrief questions.
-- **Export** (`engine/export.py`): one zip with five participant documents and the facilitator pack (.docx) and five data files (.csv). App: the Exercise script tab previews one actor and has one download. CLI: `--export-dir`, `--compare-path`.
-- The decision log now holds the figures the actor had (delayed); an actor cannot decide before it is informed.
-- Removed: the old single script, `config/injects.yaml`, `engine/injects.py`, their tests. New: `config/script.yaml`. `tests/`: 898 tests.
+## What was built in phase C1
+- **Calendar.** Day 1 is the scenario's start weekday. On weekends: no market sales, no central bank drawing, maturities move to Monday; withdrawals come in at 30% of a business day and are paid from cash only, the rest is "requested, not yet settled" until Monday. Nobody defaults on a weekend. Moratorium and sale settlement count business days. Switch: `weekend_rules_on`.
+- **The queue is visible**: in bank management's and the resolution authority's figures, in the timeline and in the liquidity need at the end of a run (now projected outflows plus the queue, less remaining liquidity).
+- **Intraday view**: each day's outflow allocated over four time blocks with fixed shares, in the timeline's day panel and in bank management's injects. Labelled as an allocation.
+- **Script fixes**: notifications that arrive together are one inject; a stage notification carries the figures that triggered it, of that day, and no older table; notifications flow bank -> competent authority -> others (18:00, 18:30, 19:00); deadlines are those of the branch being read (the earlier one in the shared part); six ambient injects from `config/script.yaml`, no model effect, can be switched off.
+- **Showcase**: the app, the guided demo and `--showcase` open on the mid-size retail bank in the geopolitical shock, from a Wednesday. Charts label weekdays and shade weekends. The contagion tab is hidden (engine code kept).
+- Faster uncertainty runs (the result table is built only when needed). `tests/`: 1054 tests.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q`
-- Pack: `.venv/bin/python -m engine.run --bank universal --scenario fast_run --path early_foltf --export-dir exports`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Showcase pack: `.venv/bin/python -m engine.run --showcase --export-dir exports`
 
-## Acceptance output (phase D)
-- Full export for the universal bank in the fast run, branch A "authorities act late" (payments default day 5) against branch B "early FOLTF, bail-in" (resolution day 4): 11 files in `exports/exercise_pack_universal_fast_run/` (not in git).
-- Resolution authority's document: no inject about the recovery breach; on day 1 at 18:00 it is told early intervention conditions are met and holds figures as of day 0 (deposits 620.60, nothing lost) while the bank has already lost 15.2%. It never sees the liquidity buffer or the LCR proxy.
-- The test that enforces this checks every figure of every actor's injects against its set and delay, and every number printed in the Word document against those figures, for the acceptance pack and for 2 banks in 4 scenarios on a second pair of paths.
-- `pytest -q` -> `898 passed`. Script tab checked in the browser.
+## Acceptance output (phase C1)
+Without decisions. R/E/F = day of recovery, early intervention, likely-to-fail flag; then outcome and deposits lost.
 
-## Deviations and choices (approved 2026-11-11)
-- Weekdays and times are labels only (day 1 is a Monday); no weekend rules or intraday figures before phase C.
-- Delays apply to figures. Stage changes, payments default, FOLTF and resolution are notified the same day, so the one-day decision rule of phase B is unchanged.
-- Deadline of a decision: the last close before the payments default of the path without decisions; without such a default, 2 days after it opens.
-- For an option not followed on a branch, "where it leads" is a run with that option taken at the first possible close and nothing decided afterwards.
+| Bank | Fast run | Slow burn | Cyber outage | Geopolitical (from Wed) |
+|---|---|---|---|---|
+| Universal | 1/1/1, default day 5, 57% | 7/-/-, under stress, 25% | 3/4/4, under stress, 28% | 2/3/3, under stress, 58% |
+| Retail | 1/1/1, default day 5, 41% | 11/-/-, under stress, 14% | 4/-/-, under stress, 14% | 2/6/6, under stress, 39% |
+| Digital | 1/1/1, default day 2, 29% | 9/-/-, under stress, 18% | 3/4/4, under stress, 19% | 2/3/3, default day 9, 36% |
+| Specialised | 1/1/1, default day 4, 62% | 6/-/-, under stress, 29% | 2/-/-, under stress, 34% | 2/3/3, default day 10, 62% |
+
+Showcase (retail, geopolitical): recovery Thu day 2; first weekend days 4-5 with 0.83 requested and not settled; likely to fail Mon day 6; one day of liquidity left on Fri day 10; FOLTF declared that evening (resolution weekend); tool applied Mon day 13. 32.7% of deposits lost, 0.99 requested and not settled, liquidity need 1.94. Branch B: liquidation, payout 22.9.
+- `pytest -q` -> `1054 passed`. "Higher severity never defaults later" holds with the calendar on, so no exception was needed. App checked in the browser.
+
+## Deviations and choices (approved 2026-11-12)
+- Slow-burn severity re-set from 0.3 to 0.38 to keep its agreed target under weekend rules (docs/CALIBRATION.md, section 11).
+- The geopolitical shock starts on a Wednesday; all other presets on a Monday.
+- The capital projection behind the likely-to-fail flag ignores the calendar.
+- The guided demo's fifth step is now "change a decision", not "move a slider".
 
 ## Open questions
-- All wording, coordination steps and debrief questions are my draft, without legal references; a practitioner should review them.
-- Information sets are not `value/unit/source` parameters: they are listed, flagged ASSUMPTION, on the Assumptions page.
-- In the fast run three stage notifications arrive together on day 1, each with the same figures.
-- A deadline is relative to the no-decision path, so it can be later than useful on a branch where another decision already changed the course.
-- Screenshots in docs/screenshots/ predate phases A to D. The contagion tab ignores decisions (phase F).
+- Resolution is still a label: capital need, loss allocation and the resolution weekend injects are phase C2. Legal loss-absorption thresholds are not modelled (stated in the facilitator pack).
+- Ambient injects, clock times, information sets and all script wording are drafts.
+- A 500-run pass on a 30-day run takes about 1 s. Screenshots in docs/screenshots/ predate phases A to C1.

@@ -30,6 +30,10 @@ Accounting conventions:
 - Stable core: only the flight-prone share of each category's opening stock can leave; the
   run-off rate applies to what is left of that share.
 - A scenario may let its severity fade towards a floor once its trigger is over.
+- Calendar: day 1 is the scenario's start weekday. On weekend days there is no market sale
+  and no central bank drawing, maturities move to Monday, and reduced withdrawal requests
+  are paid from cash only; the rest waits for Monday as "requested, not yet settled". Nobody
+  defaults on a weekend. The capital projection ignores the calendar.
 - Payment outage: withdrawals and maturing wholesale funding are queued, nothing is
   paid, and the whole queue is due on the first day after the outage.
 - Equity is represented by CET1.
@@ -39,6 +43,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from functools import cached_property
 from typing import Optional, Sequence
 
 import pandas as pd
@@ -159,11 +164,15 @@ class Funding:
 
 @dataclass(frozen=True)
 class Event:
+    """`figures` (stage events only): the figures that crossed a threshold, as
+    (name, value, threshold)."""
+
     day: int
     # news | recovery | early_intervention | likely_to_fail | failure | decision | foltf |
     # resolution
     kind: str
     detail: str
+    figures: tuple[tuple[str, float, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -174,11 +183,17 @@ class FundingNeed:
     projected_outflows: float
     remaining_liquidity: float
     need: float
+    # Withdrawals and maturities requested but not yet settled (weekend, moratorium, outage):
+    # they fall due first and are included in `need`.
+    queued: float = 0.0
 
 
 @dataclass(frozen=True)
 class SimulationResult:
-    table: pd.DataFrame
+    """`rows` holds one dict per simulated day; `table` is the same as a DataFrame, built
+    only when it is first asked for (the Monte Carlo runs never need it)."""
+
+    rows: tuple[dict, ...]
     events: tuple[Event, ...]
     failure_day: Optional[int]  # day of the payments default
     funding_need: Optional[FundingNeed]
@@ -193,6 +208,12 @@ class SimulationResult:
     scorecard: Optional[Scorecard] = None
     # First day from which the flag conditions no longer hold (None: never raised, or standing).
     flag_cleared_day: Optional[int] = None
+    # FOLTF is in effect on a Saturday: it was declared after the Friday close.
+    resolution_weekend: bool = False
+
+    @cached_property
+    def table(self) -> pd.DataFrame:
+        return pd.DataFrame(list(self.rows))
 
 
 # --------------------------------------------------------------------------- state
@@ -626,7 +647,7 @@ def _row(
 ) -> dict:
     outflow_total = outflow_deposits + outflow_wholesale
     buffer = liquidity_buffer(state, central_bank_usable, p, ela_headroom)
-    row = {"day": day, "status": status}
+    row = {"day": day, "weekday": "", "weekend": False, "status": status}
     for name, stock in zip(DEPOSIT_CATEGORIES, state.deposits):
         row[f"dep_{name}"] = stock
     row.update(
@@ -690,10 +711,16 @@ def _check_triggers(
         loss_share += queued / initial_deposits
     cet1_ratio = row["cet1_ratio"]
 
+    figures: dict[int, list[tuple[str, float, float]]] = {1: [], 2: [], 3: [], 4: []}
     recovery_reasons = []
     if lcr < p.recovery_lcr_threshold.value:
         recovery_reasons.append(f"LCR proxy {lcr:.0%} below {p.recovery_lcr_threshold.value:.0%}")
+        figures[1].append(("lcr_proxy", lcr, p.recovery_lcr_threshold.value))
     if loss_share > p.recovery_deposit_loss_threshold.value:
+        figures[1].append(
+            ("cum_deposit_loss_pct", 100.0 * loss_share,
+             100.0 * p.recovery_deposit_loss_threshold.value)
+        )
         recovery_reasons.append(
             f"cumulative deposit loss{' incl. queued withdrawals' if queued > EPS else ''} "
             f"{loss_share:.1%} above "
@@ -705,20 +732,25 @@ def _check_triggers(
         ei_reasons.append(
             f"LCR proxy {lcr:.0%} below {p.early_intervention_lcr_threshold.value:.0%}"
         )
+        figures[2].append(("lcr_proxy", lcr, p.early_intervention_lcr_threshold.value))
     ei_floor = requirement + p.early_intervention_cet1_margin.value
     if cet1_ratio < ei_floor:
         ei_reasons.append(f"CET1 ratio {cet1_ratio:.1%} below {ei_floor:.1%}")
+        figures[2].append(("cet1_ratio", cet1_ratio, ei_floor))
 
     flag_reasons = []
     flag_days = int(p.likely_to_fail_survival_days.value)
     if row["survival_days"] < flag_days:
+        figures[3].append(("survival_days", row["survival_days"], float(flag_days)))
         flag_reasons.append(
             f"liquidity covers {row['survival_days']:.1f} days of the current outflow, "
             f"fewer than {flag_days}"
         )
     if cet1_ratio < requirement:
         flag_reasons.append(f"CET1 ratio {cet1_ratio:.1%} below requirement {requirement:.1%}")
+        figures[3].append(("cet1_ratio", cet1_ratio, requirement))
     elif row["cet1_ratio_projected"] < requirement:
+        figures[3].append(("cet1_ratio_projected", row["cet1_ratio_projected"], requirement))
         flag_reasons.append(
             f"CET1 ratio projected at {row['cet1_ratio_projected']:.1%} within {flag_days} "
             f"days, below requirement {requirement:.1%}"
@@ -732,8 +764,10 @@ def _check_triggers(
         fail_reasons.append(
             f"liquidity exhausted, {row['unmet_outflow']:.2f} of outflows could not be paid"
         )
+        figures[4].append(("unmet_outflow", row["unmet_outflow"], 0.0))
     if row["cet1"] <= EPS:
         fail_reasons.append("capital exhausted, no further asset sale at a loss is possible")
+        figures[4].append(("cet1_ratio", cet1_ratio, 0.0))
 
     reached = (
         4 if fail_reasons else 3 if flag_reasons else 2 if ei_reasons else 1 if recovery_reasons else 0
@@ -746,7 +780,11 @@ def _check_triggers(
         3: ("likely_to_fail", "; ".join(flag_reasons) or carried),
         4: ("failure", "; ".join(fail_reasons)),
     }
-    events = [Event(day, *details[s]) for s in range(stage + 1, new_stage + 1)]
+    # A stage reached only because a later one is met carries that later stage's figures.
+    events = [
+        Event(day, *details[s], figures=tuple(figures[s] or figures[reached]))
+        for s in range(stage + 1, new_stage + 1)
+    ]
     return new_stage, events
 
 
@@ -806,6 +844,22 @@ def simulate(
     flag_days = int(p.likely_to_fail_survival_days.value)
     requirement = bank.capital.capital_requirement_ratio
     lead = int(decisions.lead_days.value) if decisions is not None else 1
+    calendar = p.weekend_rules_on.value >= 1
+    weekend_share = p.weekend_withdrawal_share.value
+
+    def weekend(day: int) -> bool:
+        return calendar and day >= 1 and scenario.weekday(day) in ("Saturday", "Sunday")
+
+    def business_day(day: int, after: int) -> int:
+        """`after` = 0: `day` itself, or the next business day if it is a weekend day.
+        Otherwise the `after`-th business day following `day`."""
+        while weekend(day):
+            day += 1
+        for _ in range(after):
+            day += 1
+            while weekend(day):
+                day += 1
+        return day
 
     state = initial_state(bank)
     # Stable core: the part of each category's opening stock that is not flight-prone.
@@ -945,7 +999,7 @@ def simulate(
         if effect == "panic_shock":
             return values["shock"]
         if effect == "asset_sale":
-            settlement = day + int(values["settlement_days"])
+            settlement = business_day(day, int(values["settlement_days"]))  # business days
             sales.setdefault(settlement, []).append(
                 (values["share"] * initial_illiquid, values["discount"])
             )
@@ -962,7 +1016,10 @@ def simulate(
             foltf_day = day
             events.append(Event(day, "foltf", "The bank is declared failing or likely to fail."))
         elif effect == "moratorium":
-            moratorium_until = max(moratorium_until, day + int(values["days"]) - 1)
+            # Business days: a moratorium that starts on a Saturday holds until the close
+            # of its last business day.
+            last = business_day(day, int(values["days"]) - 1)
+            moratorium_until = max(moratorium_until, last)
         elif effect == "resolution_tool":
             tool = option.tool
         elif effect == "prepare_payout":
@@ -1032,6 +1089,28 @@ def simulate(
                 wholesale_ladder=remaining_ladder,
                 wholesale_overdue=state.wholesale_overdue + maturing,
             )
+        elif weekend(day):
+            # Weekend: fewer requests come in, and they are paid from cash only. No market
+            # sale, no central bank drawing. What cash cannot cover is requested but not
+            # settled, and falls due on Monday with the maturities of the weekend.
+            wanted = tuple(r * weekend_share for r in requests)
+            need = sum(wanted)
+            paid = min(state.cash, need)
+            paid_share = paid / need if need > EPS else 1.0
+            outflow_deposits, wholesale_outflow = paid, 0.0
+            funding = Funding(cash=paid)
+            state = replace(
+                state,
+                cash=state.cash - paid,
+                deposits=tuple(
+                    max(0.0, stock - w * paid_share) for stock, w in zip(state.deposits, wanted)
+                ),
+                queued_deposits=tuple(
+                    q + w * (1.0 - paid_share) for q, w in zip(state.queued_deposits, wanted)
+                ),
+                wholesale_ladder=remaining_ladder,
+                wholesale_overdue=state.wholesale_overdue + maturing,
+            )
         else:
             # Today's requests plus anything queued while payments were blocked are due.
             deposit_outflows = tuple(q + r for q, r in zip(state.queued_deposits, requests))
@@ -1057,6 +1136,8 @@ def simulate(
         if previous_stage == 0 and stage >= 1:
             central_bank_from = day + lag
         row["status"] = _STAGES[stage]
+        row["weekday"] = scenario.weekday(day)
+        row["weekend"] = weekend(day)
         rows.append(row)
 
         if stage == _FAILED_STAGE:
@@ -1102,11 +1183,13 @@ def simulate(
         days = int(p.resolution_funding_days.value)
         projected = projected_outflows(state, day, next_x(state), severity, days, p)
         remaining = liquidity_buffer(state, cb_usable(day), p, headroom(day, state))
+        queued = sum(state.queued_deposits) + state.wholesale_overdue
         funding_need = FundingNeed(
             days=days,
             projected_outflows=projected,
             remaining_liquidity=remaining,
-            need=max(0.0, projected - remaining),
+            need=max(0.0, projected + queued - remaining),
+            queued=queued,
         )
 
     covered = state.deposits[DEPOSIT_CATEGORIES.index("insured_retail")]
@@ -1135,7 +1218,7 @@ def simulate(
     )
 
     return SimulationResult(
-        table=pd.DataFrame(rows),
+        rows=tuple(rows),
         events=tuple(events),
         failure_day=failure_day,
         funding_need=funding_need,
@@ -1147,4 +1230,7 @@ def simulate(
         faster_reporting_from=tuple(sorted(faster_from.items())),
         scorecard=scorecard,
         flag_cleared_day=flag_cleared_day,
+        resolution_weekend=foltf_day is not None
+        and calendar
+        and scenario.weekday(foltf_day) == "Saturday",
     )

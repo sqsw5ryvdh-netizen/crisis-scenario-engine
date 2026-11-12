@@ -281,6 +281,7 @@ def test_run_stops_when_capital_is_exhausted_and_cet1_never_goes_negative():
     # finding liquidity until its capital is gone.
     no_core = {f"flight_prone_share_{name}": 1.0 for name in
                ("insured_retail", "uninsured_retail", "corporate", "financial")}
+    no_core["weekend_rules_on"] = 0  # and no weekends to slow the run
     result = run("universal", "geopolitical", overrides=no_core, ela_day=2, fade=None)
     table = result.table
     assert (table["cet1"] >= -TOL).all()

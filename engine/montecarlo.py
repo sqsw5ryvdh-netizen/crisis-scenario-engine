@@ -39,6 +39,7 @@ SAMPLED_PARAMETERS = (
     "fire_sale_discount",
     "fire_sale_daily_cap_share",
     "panic_decay",
+    "weekend_withdrawal_share",
 )
 # The archetype's run-off speed factor is sampled too (it belongs to the bank, not the model).
 SPEED_FACTOR = "runoff_speed_factor"
@@ -160,9 +161,9 @@ def run_monte_carlo(
         if result.failure_day is not None:
             failure_days[i] = result.failure_day
             funding_needs[i] = result.funding_need.need
-        length = len(result.table)
+        length = len(result.rows)
         for name in BAND_SERIES:
-            values = result.table[name].to_numpy()
+            values = [row[name] for row in result.rows]  # no DataFrame: this loop is hot
             series[name][i, :length] = values
             # A run that ended (default or resolution) is frozen: its last values carry forward.
             series[name][i, length:] = values[-1]

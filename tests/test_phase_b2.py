@@ -72,8 +72,9 @@ def test_first_day_of_a_run_is_the_same_with_or_without_a_stable_core(bank):
 
 
 def test_outflows_die_out_as_the_flight_prone_part_is_used_up():
-    # ELA keeps the bank paying, so the run can be followed to its end.
-    table = run("universal", "fast_run", "ela_granted").table
+    # ELA keeps the bank paying, so the run can be followed to its end. Without weekends,
+    # which would add a low on Saturday and a catch-up on Monday.
+    table = run("universal", "fast_run", "ela_granted", overrides={"weekend_rules_on": 0}).table
     opening = table["deposits_total"].iloc[0]
     assert table["outflow_deposits"].iloc[2] > 0.2 * opening  # the peak of the run
     assert table["outflow_deposits"].iloc[-1] < 0.001 * opening
@@ -187,7 +188,8 @@ def test_cyber_outage_is_clearly_milder_than_the_fast_run(bank):
 
 
 def test_release_of_the_queue_is_the_worst_day_of_the_cyber_outage():
-    table = run("universal", "cyber_outage").table.set_index("day")
+    # Without weekends, so that the day-by-day decline can be checked.
+    table = run("universal", "cyber_outage", overrides={"weekend_rules_on": 0}).table.set_index("day")
     end = int(CONFIG.scenarios["cyber_outage"].overrides["payment_outage_end_day"].value)
     daily = table["cum_deposit_loss_pct"].diff()
     assert daily.idxmax() == end + 1

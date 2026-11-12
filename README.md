@@ -23,23 +23,36 @@ the environment by hand and run `streamlit run app/main.py`.
 
 ## The five-minute demo
 
-The app opens in guided demo mode: a panel at the top gives one instruction per step and
-outlines the control to use. Next and Back move between steps; Exit demo leaves the guide.
+The app opens on the showcase run, in guided demo mode: a panel at the top gives one
+instruction per step and outlines the control to use. Next and Back move between steps;
+Exit demo leaves the guide.
 
-1. **Pick a bank archetype.** The demo uses the digital deposit bank.
-2. **Pick a trigger.** The demo uses the fast digital run.
+1. **Pick a bank archetype.** The demo uses the mid-size retail bank.
+2. **Pick a trigger.** The demo uses the geopolitical shock, which starts on a Wednesday.
 3. **Press run.** Results appear and the crisis starts playing.
-4. **Watch the crisis unfold.** The timeline reveals one day at a time. The bank goes
-   through recovery, early intervention and the likely-to-fail warning on day 1 and cannot
-   pay its obligations on day 2. Play replays it; the day slider stops on a day.
-5. **Move a slider.** Lower Uninsured deposits from 45% to 30%: the payments default moves
-   from day 2 to day 5, and the line under the figure states the change.
+4. **Watch the crisis unfold.** The timeline reveals one day at a time, with weekends
+   shaded. The bank breaches a recovery indicator on Thursday (day 2), slows over the first
+   weekend, is likely to fail on Monday (day 6) and has about a day of liquidity left on the
+   second Friday (day 10). That evening it is declared failing or likely to fail; the
+   authorities have the weekend, and the run ends on Monday (day 13).
+5. **Change a decision.** In the sidebar, pick another decision path, for example
+   "Authorities act late": the bank is then still open after 30 days, under stress, with no
+   liquidity buffer. The Decisions tab compares the two paths.
 6. **Export the exercise script.** Download the exercise pack as one zip.
 
 Outside the guide, the app recalculates on every change. The other tabs show how each
-day's outflow was funded, the spread of failure days over 500 runs with uncertain
-parameters, and contagion to a second bank. The Assumptions page lists every parameter
-with its value and source.
+day's outflow was funded and the spread of default days over 500 runs with uncertain
+parameters. The Assumptions page lists every parameter with its value and source.
+
+## Calendar
+
+Day 1 of a scenario is a weekday set in `config/scenarios.yaml` (Monday unless stated; the
+geopolitical shock starts on a Wednesday). On Saturdays and Sundays there are no market
+sales and no central bank drawing, and maturing wholesale funding moves to Monday.
+Withdrawals continue at a reduced rate and are paid from cash only; what cash cannot cover
+is shown as "requested, not yet settled" and falls due on Monday. Nobody defaults on a
+weekend. The timeline's day panel also splits each day's outflow over four time blocks:
+this is an allocation of the daily figure with fixed shares, not a simulation of the day.
 
 ## Decisions
 
@@ -59,10 +72,12 @@ and a second one. The zip contains:
 - **one Word document per actor** (competent authority, resolution authority, central bank,
   deposit guarantee scheme, bank management). Each shows only what that actor knows, when it
   knows it: the resolution authority hears nothing before early intervention and then gets
-  figures that are one day old; the bank's management has same-day figures. Each inject has
-  a day and time, a sender, the actor's own figures, and for a decision: the options with a
-  branch code, a deadline, and who to consult and inform. A shared part comes first, then
-  one section per branch.
+  figures that are one day old; the bank's management has same-day figures. A stage change
+  is notified the same day, from the bank to the competent authority and from there to the
+  others, with the figures that triggered it. A decision inject gives the options with a
+  branch code, a deadline on that branch, and who to consult and inform. A shared part
+  comes first, then one section per branch. Ambient injects (press, politics, other
+  authorities) add pressure without changing any figure; they can be switched off.
 - **a facilitator pack** with full information: both branches day by day, every decision
   point and where each option leads, the expected coordination steps and debrief questions.
 - **data files** (.csv): all injects, decision points, the decision log and the daily tables.
@@ -78,7 +93,8 @@ and coordination steps are in `config/script.yaml`. All of it is a draft.
 
 This prints the daily table. Add `--path early_foltf` to follow a decision path,
 `--runs 500` for the uncertainty ranges and `--export-dir exports` to write the exercise
-pack (with `--compare-path` for the second branch).
+pack (with `--compare-path` for the second branch, `--no-ambient` to leave the ambient
+injects out). `python -m engine.run --showcase --export-dir exports` exports the showcase.
 
 ## Tests
 
@@ -121,10 +137,12 @@ pack (with `--compare-path` for the second branch).
   losses for creditors.
 - **The exercise script is a draft.** Its wording, coordination steps, deadlines and
   information delays were written for this prototype, contain no legal references and have
-  not been reviewed by a practitioner. Delays are whole days and weekdays are labels only:
-  there are no weekend rules or intraday figures yet.
+  not been reviewed by a practitioner. Delays are whole days.
+- **Resolution is not computed yet.** The script stops when the tool is applied; capital
+  need, loss allocation and legal loss-absorption thresholds are not modelled.
 - **Daily steps only.** A run that happens within hours is shown as one day.
-- **Contagion is one-way** and works through news only: the second bank never affects the first.
+- **Contagion is hidden in the app** until it is replaced by the cross-border group; its
+  engine code is one-way and works through news only.
 
 ## Data
 

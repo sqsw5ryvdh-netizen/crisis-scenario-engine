@@ -104,6 +104,39 @@ wholesale_rollover_cap:
   unit: share of maturing funding
   source: ASSUMPTION
 
+# --- Calendar (SPEC_V2 phase C) ---
+# On Saturdays and Sundays: no market sales, no central bank drawing, wholesale maturities
+# move to Monday. Withdrawals continue at a reduced rate and are paid from cash only; what
+# cash cannot cover is "requested, not yet settled" and falls due on Monday.
+weekend_rules_on:
+  value: 1
+  unit: switch (1 = on, 0 = off)
+  source: "docs/SPEC_V2.md phase C"
+weekend_withdrawal_share:
+  value: 0.30
+  unit: share of a business day's withdrawal requests
+  source: ASSUMPTION
+  low: 0.10
+  high: 0.60
+# Intraday view: how a day's outflow is allocated over time blocks. An allocation of the
+# daily figure for the script and the app, not a simulation. The four shares add up to 1.
+intraday_share_morning:
+  value: 0.30
+  unit: share of the day's outflow, 09:00-12:00
+  source: ASSUMPTION
+intraday_share_midday:
+  value: 0.25
+  unit: share of the day's outflow, 12:00-15:00
+  source: ASSUMPTION
+intraday_share_afternoon:
+  value: 0.30
+  unit: share of the day's outflow, 15:00-18:00
+  source: ASSUMPTION
+intraday_share_overnight:
+  value: 0.15
+  unit: share of the day's outflow, after 18:00
+  source: ASSUMPTION
+
 # --- Payment outage: withdrawals are queued from start day to end day (0 = no outage) ---
 payment_outage_start_day:
   value: 0

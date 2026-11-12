@@ -29,12 +29,15 @@ payout_days_unprepared:
 #   whole days until intraday views exist.
 # - informed_from: the actor receives nothing before this stage is reached.
 # - faster: a decision option that shortens the delay from the day it is in effect.
+# - intraday: the actor also gets the day's outflow by time block (an allocation, not a
+#   simulation).
 # Stage changes, payments default, FOLTF and resolution are notified the same day to every
 # actor that is already informed; only the figures are delayed. All ASSUMPTION.
 information:
   bank_management:
     source: the bank's own treasury and risk functions
     lag_days: 0
+    intraday: true
     figures: [deposits_total, cum_deposit_loss_pct, outflow_total, queued_withdrawals, liquidity_buffer, survival_days, lcr_proxy, cet1_ratio, unencumbered_collateral, central_bank_funding, ela_funding, loss]
   competent_authority:
     source: the bank's supervisory reporting
@@ -52,7 +55,7 @@ information:
     source: the competent authority
     lag_days: 1
     informed_from: early_intervention
-    figures: [deposits_total, cum_deposit_loss_pct, survival_days, cet1_ratio, central_bank_funding, ela_funding]
+    figures: [deposits_total, cum_deposit_loss_pct, queued_withdrawals, survival_days, cet1_ratio, central_bank_funding, ela_funding]
   deposit_guarantee_scheme:
     source: the resolution authority
     lag_days: 1
@@ -304,3 +307,17 @@ paths:
       - {decision: public_statement, option: reassuring, day: 1}
       - {decision: recovery_options, option: sell_portfolio, day: 1}
       - {decision: ela, option: grant_full, day: 1}
+  weekend_bail_in:
+    name: FOLTF on the second Friday, bail-in
+    description: For a run that starts on a Wednesday. FOLTF is declared after the close of the second Friday (day 10); the tool is decided on Sunday and applies on Monday.
+    choices:
+      - {decision: declare_foltf, option: declare, day: 10}
+      - {decision: resolution_tool, option: bail_in, day: 12}
+  weekend_liquidation:
+    name: FOLTF on the second Friday, liquidation
+    description: As above, with no public interest in resolution; the scheme prepares during the week and pays out covered deposits.
+    choices:
+      - {decision: prepare_payout, option: prepare, day: 8}
+      - {decision: declare_foltf, option: declare, day: 10}
+      - {decision: resolution_tool, option: liquidation, day: 12}
+      - {decision: dgs_payout, option: pay_out, day: 12}

@@ -10,6 +10,7 @@ from plotly.subplots import make_subplots
 
 from engine.contagion import ContagionResult
 from engine.model import SimulationResult
+from engine.schema import WEEKDAYS
 
 LINE_COLOR = "#2a78d6"
 BAND_COLOR = "rgba(42, 120, 214, 0.18)"
@@ -35,16 +36,43 @@ _LABEL_Y = {
 }
 
 
+WEEKEND_COLOR = "rgba(137, 135, 129, 0.12)"
+
+
+def add_calendar(fig: go.Figure, start_weekday: Optional[str], horizon: int, weekends: bool) -> None:
+    """Weekday labels on the day axis and, if weekend rules apply, shaded weekend days."""
+    if start_weekday is None:
+        fig.update_xaxes(range=[0, horizon], dtick=5)
+        return
+    first = WEEKDAYS.index(start_weekday)
+    name = lambda day: WEEKDAYS[(first + day - 1) % 7]  # noqa: E731
+    # One tick per week (every Monday) plus day 1, each labelled with its weekday.
+    ticks = sorted({1} | {day for day in range(1, horizon + 1) if name(day) == "Monday"})
+    fig.update_xaxes(
+        range=[0, horizon],
+        tickvals=ticks,
+        ticktext=[f"{name(day)[:3]} {day}" for day in ticks],
+    )
+    if weekends:
+        for day in range(1, horizon + 1):
+            if name(day) in ("Saturday", "Sunday"):
+                fig.add_vrect(x0=day - 0.5, x1=day + 0.5, fillcolor=WEEKEND_COLOR,
+                              line_width=0, layer="below")
+
+
 def build_timeline(
     result: SimulationResult,
     horizon: int,
     unit: str,
     bands: Optional[dict[str, pd.DataFrame]] = None,
     until_day: Optional[int] = None,
+    start_weekday: Optional[str] = None,
+    weekends: bool = True,
 ) -> go.Figure:
     """Liquidity buffer, deposits and CET1 ratio by day, with trigger and news markers.
 
     `bands` (optional, from engine.montecarlo.bands) adds a shaded uncertainty band per panel.
+    `start_weekday` (optional) labels the day axis with weekdays and shades the weekends.
     `until_day` (optional) reveals the run only up to that day. The axes keep the scale of
     the whole run, and the band is drawn only once the last day is shown.
     """
@@ -139,7 +167,7 @@ def build_timeline(
             font=dict(size=12),
         )
 
-    fig.update_xaxes(range=[0, horizon], dtick=5)
+    add_calendar(fig, start_weekday, horizon, weekends)
     fig.update_xaxes(title_text="Day", row=len(panels), col=1)
     fig.update_layout(
         height=620,
@@ -150,7 +178,9 @@ def build_timeline(
     return fig
 
 
-def build_failure_distribution(counts: pd.DataFrame, horizon: int) -> go.Figure:
+def build_failure_distribution(
+    counts: pd.DataFrame, horizon: int, start_weekday: Optional[str] = None
+) -> go.Figure:
     """Number of Monte Carlo runs reaching payments default on each day, plus a bar for the rest.
 
     `counts` comes from engine.montecarlo.failure_day_counts.
@@ -175,11 +205,19 @@ def build_failure_distribution(counts: pd.DataFrame, horizon: int) -> go.Figure:
             hovertemplate=f"No payments default within {horizon} days: " + "%{y} runs<extra></extra>",
         )
     )
-    ticks = list(range(0, horizon + 1, 5))
+    if start_weekday is None:
+        ticks = list(range(0, horizon + 1, 5))
+        labels = [str(t) for t in ticks]
+    else:
+        first = WEEKDAYS.index(start_weekday)
+        ticks = sorted(
+            {1} | {d for d in range(1, horizon + 1) if WEEKDAYS[(first + d - 1) % 7] == "Monday"}
+        )
+        labels = [f"{WEEKDAYS[(first + d - 1) % 7][:3]} {d}" for d in ticks]
     fig.update_xaxes(
         title_text="Payments default day",
         tickvals=ticks + [no_failure_x],
-        ticktext=[str(t) for t in ticks] + ["No default"],
+        ticktext=labels + ["No default"],
         range=[-0.75, no_failure_x + 0.75],
     )
     fig.update_yaxes(title_text="Number of runs", rangemode="tozero")
@@ -254,6 +292,8 @@ def build_path_comparison(
     selected_name: str,
     horizon: int,
     unit: str,
+    start_weekday: Optional[str] = None,
+    weekends: bool = True,
 ) -> go.Figure:
     """Two decision paths of the same bank and scenario on the same axes."""
     panels = [
@@ -304,7 +344,7 @@ def build_path_comparison(
                 col=1,
             )
         fig.update_yaxes(rangemode="tozero", row=row, col=1)
-    fig.update_xaxes(range=[0, horizon], dtick=5)
+    add_calendar(fig, start_weekday, horizon, weekends)
     fig.update_xaxes(title_text="Day", row=len(panels), col=1)
     fig.update_layout(
         height=600,

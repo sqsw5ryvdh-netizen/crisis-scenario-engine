@@ -2,6 +2,7 @@
 # severity multiplies every deposit category's base run-off rate (1.0 = baseline).
 # panic_shock is added to x in the panic multiplier from the event day onwards.
 # overrides replace parameters of model.yaml for this scenario only.
+# start_weekday (optional, default Monday): weekday of day 1; weekends follow from it.
 # fade (optional): from from_day on, severity moves towards floor, halving the distance every
 # half_life_days. Without it the severity stays constant for the whole horizon.
 
@@ -26,11 +27,12 @@ slow_burn:
   name: Slow burn
   description: Weeks of gradual confidence erosion.
   # Set so that the universal archetype loses about a quarter of its deposits in 30 days,
-  # the order of magnitude of one documented case (docs/CALIBRATION.md, section 7).
+  # the order of magnitude of one documented case (docs/CALIBRATION.md, section 7). Re-set
+  # in phase C1: weekends slow the run, so the same target needs a higher severity.
   severity:
-    value: 0.3
-    low: 0.2
-    high: 0.5
+    value: 0.38
+    low: 0.25
+    high: 0.6
     unit: multiplier
     source: ASSUMPTION
   news_events:
@@ -91,6 +93,8 @@ cyber_outage:
 
 geopolitical:
   name: Geopolitical shock
+  # Day 1 is a Wednesday, so that the second Friday is day 10 (the showcase run).
+  start_weekday: Wednesday
   description: Market haircuts widen and wholesale funding markets close from day 1.
   severity:
     value: 1.5

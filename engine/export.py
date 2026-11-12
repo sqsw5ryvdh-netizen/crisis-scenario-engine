@@ -16,11 +16,26 @@ from engine.decisions import OUTCOME_LABELS, actor_label, decision_log_rows, sco
 from engine.schema import WEEKDAYS, DecisionsConfig, ScriptConfig
 from engine.script import ExercisePack, Inject
 
+KNOWN_LIMITS = (
+    "Legal loss-absorption thresholds are not modelled: the model does not test any minimum "
+    "amount of losses that shareholders and creditors must bear before other funds are used.",
+    "Bail-in and sale of business are outcome labels: the model does not yet compute who "
+    "bears which loss.",
+    "Days are whole days. Times of day are labels, and the outflow by time block is an "
+    "allocation of the daily figure, not a simulation of the day.",
+    "On weekends there are no market sales and no central bank drawing; withdrawals are paid "
+    "from cash only and the rest waits for Monday. Nobody defaults on a weekend.",
+    "All parameters behind the figures are assumptions unless the Assumptions page says "
+    "otherwise. Ambient injects change no figure.",
+    "The wording, coordination steps and deadlines are a draft without legal references.",
+)
+
 TIMELINE_COLUMNS = {
     "day": "Day",
     "status": "Stage",
     "cum_deposit_loss_pct": "Deposits lost (%)",
     "outflow_total": "Outflow",
+    "queued_withdrawals": "Requested, not settled",
     "liquidity_buffer": "Liquidity buffer",
     "survival_days": "Survival (days)",
     "cet1_ratio": "CET1 ratio (%)",
@@ -82,14 +97,34 @@ def _glossary(document, script: ScriptConfig) -> None:
 def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
     document.add_heading(f"{day_label(pack, inject.day)}, {inject.time} - {inject.title}", level=3)
     _labelled(document, "From", inject.sender)
-    document.add_paragraph(inject.text)
+    for line in inject.text.split("\n"):
+        document.add_paragraph(line)
+    value = lambda figure: figure.text[len(figure.label) + 1:]  # noqa: E731
+    if inject.headline:
+        as_of = inject.headline[0].as_of_day
+        document.add_paragraph(
+            f"Figures behind this notification, as of the close of day {as_of}, as passed on "
+            f"by the sender:"
+        )
+        _table(
+            document,
+            ["Figure", "Value", "Threshold crossed"],
+            [[figure.label, value(figure), figure.threshold_text] for figure in inject.headline],
+        )
+    if inject.notified:
+        document.add_paragraph("What you have been told in notifications so far:")
+        _table(
+            document,
+            ["Figure", "Value", "As of the close of"],
+            [[figure.label, value(figure), f"day {figure.as_of_day}"] for figure in inject.notified],
+        )
     if inject.figures:
         as_of = inject.figures[0].as_of_day
-        document.add_paragraph(f"Your figures, as of the close of day {as_of}:")
+        document.add_paragraph(f"Your latest regular report, as of the close of day {as_of}:")
         _table(
             document,
             ["Figure", "Value"],
-            [[figure.label, figure.text[len(figure.label) + 1:]] for figure in inject.figures],
+            [[figure.label, value(figure)] for figure in inject.figures],
         )
     due = inject.decision_due
     if due is not None:
@@ -102,7 +137,9 @@ def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
         weekday = weekday_of(pack, due.deadline_day)
         _labelled(
             document, "Decide by",
-            f"the close of day {due.deadline_day}" + (f" ({weekday})" if weekday else ""),
+            f"the close of day {due.deadline_day}" + (f" ({weekday})" if weekday else "")
+            + (". The branches have different deadlines; this is the earlier one."
+               if due.deadline_shared else ""),
         )
         _labelled(document, "Consult first", ", ".join(due.consult) or "nobody")
         _labelled(document, "Inform afterwards", ", ".join(due.inform) or "nobody")
@@ -158,6 +195,7 @@ def _timeline_rows(pack: ExercisePack, branch) -> list[list[str]]:
             str(row["status"]).replace("_", " ").replace("failed", "payments default"),
             f"{row['cum_deposit_loss_pct']:.1f}",
             f"{row['outflow_total']:.2f}",
+            f"{row['queued_withdrawals']:.2f}",
             f"{row['liquidity_buffer']:.2f}",
             "no outflow" if survival == float("inf") else f"{survival:.1f}",
             f"{100 * row['cet1_ratio']:.1f}",
@@ -209,6 +247,19 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
             [*TIMELINE_COLUMNS.values(), "Events"],
             _timeline_rows(pack, branch),
         )
+        need = branch.result.funding_need
+        if need is not None:
+            document.add_paragraph(
+                f"Liquidity need over the {need.days} days after the run ends: "
+                f"{need.need:.2f} {pack.unit}. This is projected outflows of "
+                f"{need.projected_outflows:.2f} plus {need.queued:.2f} requested but not yet "
+                f"settled, less {need.remaining_liquidity:.2f} of remaining liquidity."
+            )
+        if branch.result.resolution_weekend:
+            document.add_paragraph(
+                "FOLTF is declared after a Friday close: the authorities have a resolution "
+                "weekend before the bank would reopen on Monday."
+            )
         document.add_heading("Decisions taken on this branch", level=2)
         log = decision_log_rows(branch.result.decision_log, pack.unit)
         if log:
@@ -257,6 +308,25 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
             for key, definition in decisions.decisions.items()
         ],
     )
+    document.add_heading("Ambient injects", level=1)
+    if not pack.ambient_on:
+        document.add_paragraph("Ambient injects are switched off in this pack.")
+    else:
+        document.add_paragraph(
+            "Background noise to add pressure: press, politics, other authorities. They have "
+            "no effect on any figure in the model. Leave them out if they distract."
+        )
+        rows = [
+            [f"Branch {branch.label}", day_label(pack, inject.day), inject.time, inject.title,
+             script.actors[actor]]
+            for branch in pack.branches
+            for actor, injects in branch.injects.items()
+            for inject in injects if inject.kind == "ambient"
+        ]
+        _table(document, ["Branch", "Day", "Time", "Inject", "Recipient"], rows)
+    document.add_heading("Known limits", level=1)
+    for limit in KNOWN_LIMITS:
+        document.add_paragraph(limit, style="List Bullet")
     document.add_heading("Questions for the debrief", level=1)
     for question in script.debrief:
         document.add_paragraph(question, style="List Number")
@@ -282,10 +352,15 @@ def injects_frame(pack: ExercisePack) -> pd.DataFrame:
                         "weekday": inject.weekday,
                         "time": inject.time,
                         "kind": inject.kind,
+                        "title": inject.title,
                         "from": inject.sender,
                         "text": inject.text,
-                        "figures_as_of_day": inject.figures[0].as_of_day if inject.figures else "",
-                        "figures": "; ".join(figure.text for figure in inject.figures),
+                        "notification_figures": "; ".join(
+                            f"{figure.text} (threshold {figure.threshold_text}, day {figure.as_of_day})"
+                            for figure in inject.headline
+                        ),
+                        "report_as_of_day": inject.figures[0].as_of_day if inject.figures else "",
+                        "report": "; ".join(figure.text for figure in inject.figures),
                         "decision": due.name if due else "",
                         "options": "; ".join(f"{o.branch_code} {o.name}" for o in due.options)
                         if due else "",

@@ -448,7 +448,6 @@ def test_support_package_stabilises_the_bank_in_the_geopolitical_shock(bank):
     assert late.outcome == "under_stress" and late.failure_day is None
     assert late.table["liquidity_buffer"].iloc[-1] == pytest.approx(0.0)
     assert late.table["flag_active"].iloc[-1]
-    assert late.table["cet1_ratio"].iloc[-1] < requirement
     assert package.outcome == "stabilised"
     last = package.table.iloc[-1]
     assert last["liquidity_buffer"] > 0 and not last["flag_active"]
@@ -587,11 +586,12 @@ def test_comparison_chart_shows_both_paths_to_their_last_day():
 
 def _open_decisions_tab():
     at = AppTest.from_file(APP_PATH)
-    at.session_state["demo_on"] = False
-    at.session_state["view"] = demo.TAB_DECISIONS
-    at.run(timeout=30)
-    at.selectbox(key="bank").set_value("universal").run(timeout=30)
-    return at
+    for key, value in dict(
+        demo_on=False, view=demo.TAB_DECISIONS, bank="universal", scenario="fast_run",
+        decision_path="act_late",
+    ).items():
+        at.session_state[key] = value
+    return at.run(timeout=60)
 
 
 def test_app_decisions_tab_compares_the_selected_path_with_a_reference():

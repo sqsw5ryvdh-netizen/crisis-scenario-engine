@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from engine.schema import ActorInformation, DecisionPath
+from engine.schema import INTRADAY_BLOCKS, ActorInformation, DecisionPath, ModelParams
 
 # The bank is still open at the end of the horizon:
 OUTCOME_STABILISED = "stabilised"  # flag conditions gone, positive buffer, outflows near zero
@@ -98,7 +98,7 @@ FIGURE_LABELS = {
     "deposits_total": ("Deposits", "amount"),
     "cum_deposit_loss_pct": ("Deposits lost", "pct"),
     "outflow_total": ("Outflow of the day", "amount"),
-    "queued_withdrawals": ("Queued withdrawals", "amount"),
+    "queued_withdrawals": ("Requested, not yet settled", "amount"),
     "liquidity_buffer": ("Liquidity buffer", "amount"),
     "survival_days": ("Survival horizon", "days"),
     "lcr_proxy": ("LCR proxy", "ratio"),
@@ -110,6 +110,7 @@ FIGURE_LABELS = {
     "dep_insured_retail": ("Covered deposits", "amount"),
     "illiquid_assets": ("Loan book", "amount"),
     "loss": ("Loss of the day", "amount"),
+    "unmet_outflow": ("Unpaid outflows", "amount"),
 }
 
 
@@ -165,3 +166,16 @@ def scorecard_rows(scorecard: Scorecard, unit: str) -> list[tuple[str, str]]:
         (f"DGS payout ({unit})", f"{scorecard.dgs_payout:.2f}"),
         ("Time to pay covered depositors", payout_days),
     ]
+
+
+def intraday_allocation(outflow: float, params: ModelParams) -> list[tuple[str, float, float]]:
+    """A day's outflow over the time blocks: (label, amount, cumulative amount).
+
+    An allocation of the daily figure with fixed shares, not a simulation of the day.
+    """
+    rows, total = [], 0.0
+    for key, label in INTRADAY_BLOCKS.items():
+        amount = outflow * getattr(params, f"intraday_share_{key}").value
+        total += amount
+        rows.append((label, amount, total))
+    return rows

@@ -56,8 +56,15 @@ def format_table(result: SimulationResult, horizon: int) -> str:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run one deterministic crisis simulation.")
-    parser.add_argument("--bank", required=True, help="bank key in config/banks.yaml")
-    parser.add_argument("--scenario", required=True, help="scenario key in config/scenarios.yaml")
+    parser.add_argument("--bank", help="bank key in config/banks.yaml")
+    parser.add_argument("--scenario", help="scenario key in config/scenarios.yaml")
+    parser.add_argument(
+        "--showcase", action="store_true",
+        help="use the showcase run of config/script.yaml: bank, scenario and both paths",
+    )
+    parser.add_argument(
+        "--no-ambient", action="store_true", help="leave the ambient injects out of the pack"
+    )
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
     parser.add_argument(
         "--export-dir", type=Path,
@@ -75,6 +82,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config_dir)
+    if args.showcase:
+        showcase = config.script.showcase
+        args.bank = args.bank or showcase.bank
+        args.scenario = args.scenario or showcase.scenario
+        args.path = args.path or showcase.path
+        args.compare_path = args.compare_path or showcase.compare_path
+    if args.bank is None or args.scenario is None:
+        parser.error("give --bank and --scenario, or --showcase")
     if args.bank not in config.banks:
         parser.error(f"unknown bank '{args.bank}'. Available: {', '.join(config.banks)}")
     if args.scenario not in config.scenarios:
@@ -163,7 +178,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if other_key != path_key:
             other = config.decisions.paths[other_key]
             branches.insert(0, (other.name, choices_of(other)))
-        pack = build_pack(bank, config.model, scenario, config.decisions, config.script, branches)
+        pack = build_pack(
+            bank, config.model, scenario, config.decisions, config.script, branches,
+            ambient=not args.no_ambient,
+        )
         stem = f"exercise_pack_{args.bank}_{args.scenario}"
         args.export_dir.mkdir(parents=True, exist_ok=True)
         archive = args.export_dir / f"{stem}.zip"

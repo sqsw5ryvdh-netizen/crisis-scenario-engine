@@ -7,6 +7,14 @@
 # DRAFT: all wording, the coordination steps and the debrief questions were drafted for this
 # prototype and have not been reviewed by a practitioner. They contain no legal references.
 
+# The run the app opens on, the guided demo follows and `--showcase` exports: about ten days,
+# across one weekend, to a FOLTF declaration on a Friday evening and a resolution weekend.
+showcase:
+  bank: retail
+  scenario: geopolitical
+  path: weekend_bail_in
+  compare_path: weekend_liquidation
+
 draft_notice: >-
   Draft wording. The texts, the coordination steps and the debrief questions in this document
   were written for a prototype and have not been reviewed by a practitioner. They contain no
@@ -25,11 +33,16 @@ actors:
   bank_management: Bank management
 
 # Time of day shown on each kind of inject. Labels only: the model works in whole days.
+# A stage change reaches the bank first (stage), then the competent authority, told by the
+# bank (stage_relay), then the other authorities, told by the competent authority
+# (stage_relay_others).
 clock:
   opening: "08:00"
   news: "09:00"
   stage: "18:00"
-  decision_due: "18:30"
+  stage_relay: "18:30"
+  stage_relay_others: "19:00"
+  decision_due: "19:30"
   decision_taken: "08:00"
   end: "18:00"
 
@@ -63,6 +76,71 @@ texts:
     A decision is now open to you: {decision_name}.
   end_open: >-
     The exercise ends after {horizon_days} days. {bank_name} is still open.
+
+# Ambient injects: background noise with no effect on any figure. The facilitator can switch
+# them off. Each is placed `offset_days` after its anchor (a stage, or "foltf") if the run
+# gets there, and only for recipients that are informed by then. Texts carry no figures.
+ambient:
+  press_enquiry:
+    title: Press enquiry
+    sender: A national newspaper
+    recipients: [bank_management, competent_authority]
+    anchor: recovery
+    offset_days: 1
+    time: "11:00"
+    text: >-
+      A journalist asks whether {bank_name} is in difficulty and whether the authorities
+      are involved. A reply is requested before the evening edition.
+  tv_footage:
+    title: TV footage of branch queues
+    sender: A television news channel
+    recipients: [bank_management, competent_authority, central_bank]
+    anchor: early_intervention
+    offset_days: 1
+    time: "13:00"
+    text: >-
+      A news channel shows customers queuing outside two branches of {bank_name} and
+      asks for a comment on air.
+  ministry_call:
+    title: Call from the finance ministry
+    sender: The finance ministry
+    recipients: [competent_authority, resolution_authority]
+    anchor: early_intervention
+    offset_days: 1
+    time: "15:00"
+    text: >-
+      A senior official at the finance ministry asks for an update on {bank_name} and
+      whether public funds could be needed. The minister expects a briefing today.
+  foreign_authority_request:
+    title: Request from a foreign authority
+    sender: A supervisory authority abroad
+    recipients: [competent_authority, resolution_authority]
+    anchor: likely_to_fail
+    offset_days: 1
+    time: "10:00"
+    text: >-
+      The authority supervising a foreign branch of {bank_name} asks what you intend to
+      do and when it will be told. It is considering measures of its own.
+  parliamentary_question:
+    title: Parliamentary question
+    sender: A member of parliament
+    recipients: [competent_authority]
+    anchor: likely_to_fail
+    offset_days: 2
+    time: "12:00"
+    text: >-
+      A member of parliament tables an urgent question on the supervision of
+      {bank_name} and asks why depositors have not been told more.
+  depositor_association:
+    title: Letter from a depositors' association
+    sender: A depositors' association
+    recipients: [deposit_guarantee_scheme, resolution_authority]
+    anchor: foltf
+    offset_days: 0
+    time: "14:00"
+    text: >-
+      An association of depositors asks when and how customers of {bank_name} will have
+      access to their money, and where they should turn for information.
 
 # One question per decision, put to the actor that decides.
 questions:

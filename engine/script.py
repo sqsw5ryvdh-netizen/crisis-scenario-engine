@@ -1,16 +1,18 @@
 """Exercise script (SPEC_V2 phase D): injects per actor, branches and the facilitator's view.
 
-Pure functions. Three rules hold for every participant document:
+Pure functions. These rules hold for every participant document:
 - an actor receives nothing before it is informed (`information.informed_from`);
-- every figure comes from the actor's own set and is as old as its reporting delay;
+- its regular report holds figures from its own set, as old as its reporting delay;
+- a stage notification carries the figures that triggered it, of the same day, as passed on
+  along the chain bank -> competent authority -> other authorities;
 - the texts carry no figures, so the figure lists are the only numbers a participant sees.
-Stage changes, payments default, FOLTF and resolution are notified the same day; only the
-figures are delayed.
+Notifications that reach an actor at the same time are one inject. Ambient injects are
+background noise from config and change no figure.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, Sequence
 
 from engine.decisions import (
@@ -19,6 +21,7 @@ from engine.decisions import (
     Choice,
     FIGURE_LABELS,
     format_figure,
+    intraday_allocation,
     lag_days,
 )
 from engine.model import SimulationResult, simulate
@@ -36,7 +39,7 @@ _STAGE_OF = {name: index for index, name in enumerate(DECISION_STAGES, start=1)}
 _STATUS_STAGE = {"normal": 0, "recovery": 1, "early_intervention": 2, "likely_to_fail": 3, "failed": 4}
 # Order of injects that fall on the same day and time.
 _KIND_ORDER = (
-    "opening", "foltf", "decision_taken", "news", "recovery", "early_intervention",
+    "opening", "foltf", "decision_taken", "news", "ambient", "recovery", "early_intervention",
     "likely_to_fail", "failure", "resolution", "decision_due", "end_open",
 )
 _TITLES = {
@@ -51,6 +54,7 @@ _TITLES = {
     "decision_taken": "Decision by another actor",
     "decision_due": "Decision open to you",
     "end_open": "End of the exercise",
+    "ambient": "Ambient",
 }
 
 
@@ -61,6 +65,8 @@ class Figure:
     value: float
     as_of_day: int  # the day the figure refers to
     text: str  # as printed, e.g. "Liquidity buffer 150.86 EUR bn"
+    threshold_text: str = ""  # for a figure that triggered a stage: the threshold it crossed
+    block: str = ""  # for an intraday line: the time block (an allocation of the daily figure)
 
 
 @dataclass(frozen=True)
@@ -77,9 +83,12 @@ class DecisionDue:
     name: str
     question: str
     options: tuple[OptionLine, ...]
-    deadline_day: int  # decide by the close of this day
+    deadline_day: int  # decide by the close of this day, on the branch being read
     consult: tuple[str, ...]  # actor display names
     inform: tuple[str, ...]
+    # In the shared part of a document: the branches have different deadlines and this is
+    # the earlier one.
+    deadline_shared: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,9 +100,14 @@ class Inject:
     sender: str
     kind: str
     title: str
-    text: str
-    figures: tuple[Figure, ...] = ()
+    text: str  # one line per notification
+    figures: tuple[Figure, ...] = ()  # the actor's regular report, at its usual age
     decision_due: Optional[DecisionDue] = None
+    # Stage notifications: the figures that triggered them, of the same day, from the sender.
+    headline: tuple[Figure, ...] = ()
+    # Decision injects: the triggering figures the actor has been told so far.
+    notified: tuple[Figure, ...] = ()
+    stages: tuple[str, ...] = ()  # the stage changes this notification covers
 
 
 @dataclass(frozen=True)
@@ -148,6 +162,7 @@ class ExercisePack:
     branches: tuple[BranchScript, ...]
     documents: tuple[ActorDocument, ...]
     information_rows: tuple[dict[str, str], ...]  # facilitator: who sees what, how late
+    ambient_on: bool = True
 
 
 # --------------------------------------------------------------------------- helpers
@@ -179,12 +194,17 @@ def information_sentences(decisions: DecisionsConfig, actor: str) -> tuple[str, 
             if info.faster.lag_days == 0
             else f'After the decision "{option.name}" the delay is {info.faster.lag_days} days.'
         )
+    if info.intraday:
+        lines.append(
+            "You also see each day's outflow by time of day. This is an allocation of the "
+            "daily figure, not a count of the hour's payments."
+        )
     if info.informed_from is not None:
         stage = _TITLES[info.informed_from].lower()
         lines.append(f"You receive nothing about the bank before this stage: {stage}.")
     lines.append(
-        "Stage changes, a payments default and formal declarations reach you the same day; "
-        "only the figures are delayed."
+        "A stage change reaches you the same day, with the figures that triggered it as "
+        "passed on by the sender. Your regular report is separate and may be older."
     )
     return tuple(lines)
 
@@ -201,10 +221,11 @@ def build_branch(
     decisions: DecisionsConfig,
     script: ScriptConfig,
     choices: Sequence[Choice],
-    late_default_day: Optional[int],
+    ambient: bool = True,
 ) -> BranchScript:
     """Simulate one decision path and write every actor's injects for it."""
     result = simulate(bank, params, scenario, decisions, choices)
+    resolved = params.with_overrides(scenario.overrides)
     rows = result.table.set_index("day")
     end_day = result.end_day
     horizon = int(params.horizon_days.value)
@@ -231,7 +252,7 @@ def build_branch(
         info = decisions.information[actor]
         as_of = max(0, min(day, end_day) - lag_days(info, day, faster.get(actor)))
         row = rows.loc[as_of]
-        return tuple(
+        report = [
             Figure(
                 name=figure,
                 label=FIGURE_LABELS[figure][0],
@@ -240,21 +261,41 @@ def build_branch(
                 text=format_figure(figure, float(row[figure]), bank.unit),
             )
             for figure in info.figures
-        )
+        ]
+        if info.intraday and row["outflow_total"] > 0:
+            for block, amount, _ in intraday_allocation(float(row["outflow_total"]), resolved):
+                label = f"Outflow {block}"
+                report.append(
+                    Figure("outflow_total", label, amount, as_of,
+                           f"{label} {amount:.2f} {bank.unit}", block=block)
+                )
+        return tuple(report)
+
+    def trigger_figures(event) -> list[Figure]:
+        """The figures that triggered a stage change, as the bank reports them that day."""
+        out = []
+        for figure, value, threshold in event.figures:
+            text = format_figure(figure, value, bank.unit)
+            label = FIGURE_LABELS[figure][0]
+            limit = "" if figure == "unmet_outflow" else format_figure(
+                figure, threshold, bank.unit)[len(label) + 1:]
+            out.append(Figure(figure, label, float(value), event.day, text, threshold_text=limit))
+        return out
 
     def make(actor: str, day: int, kind: str, clock: str, sender: str, text: str,
-             with_figures: bool = True, due: Optional[DecisionDue] = None) -> Inject:
+             with_figures: bool = True, due: Optional[DecisionDue] = None, **extra) -> Inject:
         return Inject(
             day=day,
             weekday=scenario.weekday(day) if day >= 1 else "",
-            time=script.clock[clock],
+            time=script.clock.get(clock, clock),
             recipient=actor,
             sender=sender,
             kind=kind,
-            title=_TITLES[kind],
+            title=extra.pop("title", _TITLES[kind]),
             text=text,
             figures=figures(actor, day) if with_figures else (),
             decision_due=due,
+            **extra,
         )
 
     def condition_day(decision_key: str) -> Optional[int]:
@@ -278,9 +319,10 @@ def build_branch(
         return None
 
     def deadline(open_day: int) -> int:
-        if late_default_day is not None:
-            # The last close at which the decision is in effect before the default day.
-            return max(open_day, late_default_day - int(decisions.lead_days.value))
+        """On this branch: the last close before its payments default or resolution day,
+        or a fixed window if the branch has neither."""
+        if ended:
+            return max(open_day, end_day - int(decisions.lead_days.value))
         return min(horizon, open_day + int(script.decision_window_days.value))
 
     open_days = {key: condition_day(key) for key in decisions.decisions}
@@ -289,8 +331,14 @@ def build_branch(
 
     for actor in ACTORS:
         info = decisions.information[actor]
-        sender = _capital(info.source)
+        if actor == "bank_management":
+            sender, clock = _capital(info.source), "stage"
+        elif actor == "competent_authority":
+            sender, clock = names["bank_management"], "stage_relay"
+        else:
+            sender, clock = names["competent_authority"], "stage_relay_others"
         out = injects[actor]
+        told: dict[int, list] = {}  # day -> stage events this actor is notified of
         out.append(
             make(actor, 0, "opening", "opening", "Exercise control",
                  script.texts["opening"].format(bank_name=bank.name, scenario_name=scenario.name),
@@ -305,10 +353,7 @@ def build_branch(
                 )
             elif event.kind in DECISION_STAGES:
                 if _STAGE_OF[event.kind] >= first_stage and is_informed(actor, event.day):
-                    out.append(
-                        make(actor, event.day, event.kind, "stage", sender,
-                             script.texts[event.kind].format(bank_name=bank.name, sender=info.source))
-                    )
+                    told.setdefault(event.day, []).append(event)
             elif event.kind == "foltf" and is_informed(actor, event.day):
                 out.append(
                     make(actor, event.day, "foltf", "decision_taken", names["competent_authority"],
@@ -320,6 +365,22 @@ def build_branch(
                          script.texts["resolution"].format(
                              bank_name=bank.name, outcome=OUTCOME_LABELS[result.outcome].lower()))
                 )
+        for day, stage_events in told.items():
+            # One inject for everything that reaches the actor at that time.
+            merged: dict[str, Figure] = {}
+            for event in stage_events:
+                for figure in trigger_figures(event):
+                    merged[figure.name] = figure
+            highest = stage_events[-1].kind
+            out.append(
+                make(actor, day, highest, clock, sender,
+                     "\n".join(
+                         script.texts[event.kind].format(bank_name=bank.name, sender=sender)
+                         for event in stage_events),
+                     with_figures=False,
+                     headline=tuple(merged.values()),
+                     stages=tuple(event.kind for event in stage_events))
+            )
         for record in result.decision_log:
             option = decisions.decisions[record.decision].options[record.option]
             if option.effect in ("declare_foltf", "resolution_tool"):
@@ -362,10 +423,29 @@ def build_branch(
                     decider=names[earlier.actor], decision_name=earlier.decision_name,
                     option_name=earlier.option_name, effect_day=earlier.effect_day,
                 ) + " " + text
+            known: dict[str, Figure] = {}
+            for earlier_inject in sorted(out, key=lambda i: i.day):
+                if earlier_inject.day <= open_day:
+                    known.update({f.name: f for f in earlier_inject.headline})
             out.append(
                 make(actor, open_day, "decision_due", "decision_due", "Exercise control",
-                     text, due=due)
+                     text, due=due, notified=tuple(known.values()))
             )
+        if ambient:
+            for item in script.ambient.values():
+                anchor = stage_days.get(item.anchor) if item.anchor in DECISION_STAGES else (
+                    result.foltf_day
+                )
+                if anchor is None or actor not in item.recipients:
+                    continue
+                day = anchor + item.offset_days
+                if day > end_day or not is_informed(actor, day):
+                    continue
+                out.append(
+                    make(actor, day, "ambient", item.time, item.sender,
+                         item.text.format(bank_name=bank.name), with_figures=False,
+                         title=item.title)
+                )
         if not ended and is_informed(actor, end_day):
             out.append(
                 make(actor, end_day, "end_open", "end", "Exercise control",
@@ -422,6 +502,16 @@ def build_branch(
 # --------------------------------------------------------------------------- the pack
 
 
+def _shared_inject(first: Inject, second: Inject) -> Inject:
+    """An inject of the shared part: where the branches' deadlines differ, the earlier one."""
+    if first.decision_due is None or first.decision_due.deadline_day == second.decision_due.deadline_day:
+        return first
+    earlier = min(first.decision_due.deadline_day, second.decision_due.deadline_day)
+    return replace(
+        first, decision_due=replace(first.decision_due, deadline_day=earlier, deadline_shared=True)
+    )
+
+
 def build_pack(
     bank: Bank,
     params: ModelParams,
@@ -429,6 +519,7 @@ def build_pack(
     decisions: DecisionsConfig,
     script: ScriptConfig,
     paths: Sequence[tuple[str, Sequence[Choice]]],
+    ambient: bool = True,
 ) -> ExercisePack:
     """Build the exercise pack for one or two decision paths: (name, choices) each.
 
@@ -437,19 +528,25 @@ def build_pack(
     """
     if not 1 <= len(paths) <= 2:
         raise ValueError("an exercise pack takes one or two decision paths")
-    late = simulate(bank, params, scenario, decisions, ())
     branches = tuple(
         build_branch("AB"[index], name, bank, params, scenario, decisions, script, choices,
-                     late.failure_day)
+                     ambient)
         for index, (name, choices) in enumerate(paths)
     )
+
+    def without_deadline(inject: Inject) -> Inject:
+        if inject.decision_due is None:
+            return inject
+        return replace(inject, decision_due=replace(inject.decision_due, deadline_day=0))
+
     documents = []
     for actor in ACTORS:
         streams = [branch.injects[actor] for branch in branches]
         common = 0
         if len(streams) == 2:
+            # Deadlines belong to a branch, so they are left out of the comparison.
             while (common < min(len(streams[0]), len(streams[1]))
-                   and streams[0][common] == streams[1][common]):
+                   and without_deadline(streams[0][common]) == without_deadline(streams[1][common])):
                 common += 1
             rest = tuple(
                 (f"Branch {branch.label}", stream[common:])  # no name: it may give the end away
@@ -462,7 +559,9 @@ def build_pack(
                 actor=actor,
                 name=script.actors[actor],
                 information=information_sentences(decisions, actor),
-                shared=streams[0][:common],
+                shared=tuple(
+                    _shared_inject(a, b) for a, b in zip(streams[0][:common], streams[-1][:common])
+                ),
                 branches=rest,
             )
         )
@@ -486,4 +585,5 @@ def build_pack(
         branches=branches,
         documents=tuple(documents),
         information_rows=information_rows,
+        ambient_on=ambient,
     )

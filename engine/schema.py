@@ -223,6 +223,15 @@ class Scenario(StrictModel):
         return WEEKDAYS[(WEEKDAYS.index(self.start_weekday) + day - 1) % 7]
 
 
+# Time blocks of the intraday view: key -> label.
+INTRADAY_BLOCKS = {
+    "morning": "09:00-12:00",
+    "midday": "12:00-15:00",
+    "afternoon": "15:00-18:00",
+    "overnight": "after 18:00",
+}
+
+
 class ModelParams(StrictModel):
     """All model parameters of config/model.yaml (spec sections 3.2-3.4)."""
 
@@ -250,6 +259,16 @@ class ModelParams(StrictModel):
     wholesale_rollover_sensitivity: Parameter
     # Upper limit on the rollover fraction: 1 = market open, 0 = market closed.
     wholesale_rollover_cap: Parameter
+
+    # Calendar: weekend rules on or off, and the share of a business day's withdrawal
+    # requests that still comes in on a weekend day.
+    weekend_rules_on: Parameter
+    weekend_withdrawal_share: Parameter
+    # Intraday view: allocation of a day's outflow over four time blocks.
+    intraday_share_morning: Parameter
+    intraday_share_midday: Parameter
+    intraday_share_afternoon: Parameter
+    intraday_share_overnight: Parameter
 
     # Payment outage: withdrawals are queued from start day to end day (0 = no outage).
     payment_outage_start_day: Parameter
@@ -324,6 +343,11 @@ class ModelParams(StrictModel):
                 raise ValueError(f"{name} must be a whole number")
         if self.stabilised_days.value < 1:
             raise ValueError("stabilised_days must be >= 1")
+        if self.weekend_rules_on.value not in (0, 1):
+            raise ValueError("weekend_rules_on must be 0 or 1")
+        intraday = sum(getattr(self, f"intraday_share_{block}").value for block in INTRADAY_BLOCKS)
+        if abs(intraday - 1.0) > 1e-9:
+            raise ValueError("the intraday shares must add up to 1")
         for name in ("monte_carlo_runs", "monte_carlo_seed"):
             if getattr(self, name).value != int(getattr(self, name).value):
                 raise ValueError(f"{name} must be a whole number")
@@ -510,6 +534,8 @@ class ActorInformation(StrictModel):
     # The actor receives nothing before this stage is reached (none = informed from the start).
     informed_from: Optional[str] = None
     faster: Optional[FasterReporting] = None
+    # The actor also gets the day's outflow split over time blocks (an allocation).
+    intraday: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> "ActorInformation":
@@ -522,6 +548,8 @@ class ActorInformation(StrictModel):
             raise ValueError(f"unknown stage '{self.informed_from}'")
         if self.faster is not None and self.faster.lag_days >= self.lag_days:
             raise ValueError("faster reporting must shorten the delay")
+        if self.intraday and (self.lag_days != 0 or "outflow_total" not in self.figures):
+            raise ValueError("intraday needs same-day figures that include outflow_total")
         return self
 
 
@@ -601,7 +629,14 @@ SCRIPT_TEXTS = {
     "decision_due": ("decision_name",),
     "end_open": ("bank_name", "horizon_days"),
 }
-SCRIPT_CLOCK = ("opening", "news", "stage", "decision_due", "decision_taken", "end")
+# "stage": the bank learns of a stage change; "stage_relay": the competent authority is told
+# by the bank; "stage_relay_others": the other authorities are told by the competent authority.
+SCRIPT_CLOCK = (
+    "opening", "news", "stage", "stage_relay", "stage_relay_others", "decision_due",
+    "decision_taken", "end",
+)
+# What an ambient inject can be anchored to.
+AMBIENT_ANCHORS = DECISION_STAGES + ("foltf",)
 
 
 def _check_text(text: str, allowed: tuple[str, ...]) -> None:
@@ -621,14 +656,48 @@ class Coordination(StrictModel):
     inform: list[str] = Field(default_factory=list)
 
 
+class AmbientInject(StrictModel):
+    """Background noise for the exercise: no effect on any figure (SPEC_V2 phase C1)."""
+
+    title: str = Field(min_length=1)
+    sender: str = Field(min_length=1)
+    recipients: list[str]
+    anchor: str  # the stage, or "foltf", it is placed after
+    offset_days: int = Field(ge=0)
+    time: str
+    text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> "AmbientInject":
+        unknown = set(self.recipients) - set(ACTORS)
+        if unknown or not self.recipients:
+            raise ValueError(f"ambient '{self.title}': unknown or missing recipients")
+        if self.anchor not in AMBIENT_ANCHORS:
+            raise ValueError(f"ambient '{self.title}': unknown anchor '{self.anchor}'")
+        _check_text(self.text, ("bank_name",))
+        if any(character.isdigit() for character in self.text):
+            raise ValueError(f"ambient '{self.title}': the text must not carry figures")
+        return self
+
+
 class GlossaryEntry(StrictModel):
     term: str = Field(min_length=1)
     definition: str = Field(min_length=1)
 
 
+class Showcase(StrictModel):
+    """The run the app opens on and the guided demo follows."""
+
+    bank: str
+    scenario: str
+    path: str
+    compare_path: str
+
+
 class ScriptConfig(StrictModel):
     """Texts and rules of the exercise script, config/script.yaml (SPEC_V2 phase D)."""
 
+    showcase: Showcase
     draft_notice: str = Field(min_length=1)
     disclaimer: str = Field(min_length=1)
     actors: dict[str, str]  # display names
@@ -639,6 +708,8 @@ class ScriptConfig(StrictModel):
     # One question per decision, put to the deciding actor.
     questions: dict[str, str]
     coordination: dict[str, Coordination]
+    # Optional background injects; the facilitator can switch them off.
+    ambient: dict[str, AmbientInject] = Field(default_factory=dict)
     debrief: list[str]
     glossary: list[GlossaryEntry]
 
@@ -648,7 +719,9 @@ class ScriptConfig(StrictModel):
             raise ValueError(f"actors must be exactly {list(ACTORS)}")
         if set(self.clock) != set(SCRIPT_CLOCK):
             raise ValueError(f"clock must give a time for exactly {list(SCRIPT_CLOCK)}")
-        for kind, value in self.clock.items():
+        times = dict(self.clock)
+        times.update({f"ambient {key}": item.time for key, item in self.ambient.items()})
+        for kind, value in times.items():
             hours, _, minutes = value.partition(":")
             if not (hours.isdigit() and minutes.isdigit() and len(minutes) == 2
                     and int(hours) < 24 and int(minutes) < 60):
@@ -682,6 +755,11 @@ class Config(StrictModel):
         for name in ("questions", "coordination"):
             if set(getattr(self.script, name)) != decisions:
                 raise ValueError(f"script.{name} must cover exactly the decisions {sorted(decisions)}")
+        showcase = self.script.showcase
+        if showcase.bank not in self.banks or showcase.scenario not in self.scenarios:
+            raise ValueError("script.showcase names an unknown bank or scenario")
+        if not {showcase.path, showcase.compare_path} <= set(self.decisions.paths):
+            raise ValueError("script.showcase names an unknown decision path")
         for key, coordination in self.script.coordination.items():
             actor = self.decisions.decisions[key].actor
             if actor in coordination.consult or actor in coordination.inform:
