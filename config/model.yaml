@@ -251,18 +251,18 @@ likely_to_fail_survival_days:
   unit: days
   source: ASSUMPTION
 # --- Resolution block (SPEC_V2 phase C2). Used after a run, never during it. ---
-# Write-down of the loan book found by the valuation at FOLTF. The control team picks low,
+# Write-down of the loan book found by the valuation at FoLtF. The control team picks low,
 # central (value) or high. All three are ASSUMPTION.
 resolution_writedown_share:
   value: 0.04
-  unit: share of the loan book at FOLTF
+  unit: share of the loan book at FoLtF
   source: ASSUMPTION
   low: 0.02
   high: 0.08
 # Share of the loan book's value lost when the bank is wound up instead. Same three levels.
 liquidation_haircut:
   value: 0.20
-  unit: share of the loan book at FOLTF
+  unit: share of the loan book at FoLtF
   source: ASSUMPTION
   low: 0.10
   high: 0.35

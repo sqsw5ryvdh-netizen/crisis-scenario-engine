@@ -566,7 +566,7 @@ def test_cli_prints_the_decision_log_and_the_scorecard(capsys):
     args = ["--bank", "universal", "--scenario", "fast_run", "--path", "early_foltf_liquidation"]
     assert main(args) == 0
     out = capsys.readouterr().out
-    assert "Decision path: Early FOLTF, liquidation" in out
+    assert "Decision path: Early FoLtF, liquidation" in out
     assert "Decision log" in out and "Scorecard" in out
     assert "decided after close of day 1, in effect from day 2" in out
     assert "Outcome: Liquidation on day 4." in out

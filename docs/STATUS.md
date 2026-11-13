@@ -1,37 +1,38 @@
 # STATUS
 
-Last completed: **SPEC_V2 phase C2 - Resolution** (2026-11-13). Done before: M0-M6, phases A, B, B2, D and C1. SPEC_V2 phases E and F are folded into docs/SPEC_V3.md. Next: SPEC_V3 phase G (planned, not started).
+Last completed: **SPEC_V3 phase G, part a - Handbook language and scenarios** (2026-11-13). Done before: M0-M6 and SPEC_V2 phases A, B, B2, D, C1, C2. Next: phase G part b (control team materials), after review; then part c (set-up documents).
 
-## What was built in phase C2
-- **Liability stack** per archetype (`resolution` in `config/banks.yaml`): AT1 and Tier 2, senior non-preferred debt, and the MREL requirement; senior preferred debt, uncovered and covered deposits follow from the balance sheet. AT1 and Tier 2 are calibrated on the EBA file for the universal and retail archetypes; the rest is ASSUMPTION.
-- **Resolution block** (`engine/resolution.py`), computed after a run that ends with a tool: losses booked before FOLTF, valuation write-down, CET1 after it, the need (losses beyond CET1 plus recapitalisation to the requirement), who bears it in order, any shortfall, MREL requirement and available MREL, liquidity need with the withdrawals not yet settled. Liquidation: asset value, what each class of claim recovers, DGS payout and recovery.
-- **Write-down picked by the control team**: low 2%, central 4%, high 8% of the loan book (liquidation haircut 10%, 20%, 35%), all ASSUMPTION. **Breakpoint**: the write-down at which available MREL is no longer enough.
-- **Resolution period in the script**: after FOLTF, injects on the provisional valuation, who bears the losses, communication before reopening and liquidity at reopening, each to its recipients. The facilitator pack shows the summary at the three levels with the breakpoint and states that legal loss-absorption thresholds are not modelled.
-- App: resolution summary for two paths in the Decisions tab, with a level selector. CLI: `--writedown`. `tests/`: 1206 tests.
+## What was built in G-a
+- **G1 vocabulary.** "Facilitator" is now "control team", "participants" are "players", "FOLTF" is spelled "FoLtF", and the control team's timeline is the "simulation operational timeline", in the app, the exported documents, config, CLI and code. Pack folders are `players/` and `control_team/`.
+- **G9 SIMULATION label.** Every exported Word file carries "SIMULATION - exercise material, not a real event" in the header and footer of every page and under the title; every data file has `SIMULATION_` in its name.
+- **G2 taxonomy and designer.** Each scenario has a type of issue, systemic relevance and speed (Handbook par. 115). A "Scenario designer" in the sidebar filters the scenarios by them. New solvency-led scenario "Loss revealed": a news event can now write off part of the loan book against CET1.
+- **G3 linear or dynamic.** A switch in the Exercise script tab and `--mode`. Dynamic: two branches with branch codes. Linear: one fixed path, decisions put to the players but without branch codes. Every document states the type.
+- `tests/`: 1262 tests.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Showcase: `.venv/bin/python -m engine.run --showcase --writedown high --export-dir exports`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Linear showcase: `.venv/bin/python -m engine.run --showcase --mode linear --export-dir exports`
 
-## Acceptance output (phase C2)
-Showcase: retail bank, geopolitical shock from a Wednesday, FOLTF after the close of Friday day 10 (resolution weekend), tool on Monday day 13. CET1 at FOLTF 3.77, losses booked 0.74, MREL requirement 5.70, available MREL 5.57, liquidity need 1.94 of which 0.99 not yet settled.
+## Acceptance output (G-a; the phase G acceptance pack comes with part c)
+Mapping of scenarios: fast run = liquidity, fast burning; slow burn = liquidity, slow burning; cyber outage = operational, slow burning; geopolitical = liquidity, slow burning (market-wide trigger, one bank modelled); loss revealed = solvency, rapid solvency issue. All idiosyncratic.
 
-| Bail-in | Low (2%) | Central (4%) | High (8%) |
-|---|---|---|---|
-| Write-down | 0.82 | 1.65 | 3.30 |
-| Need beyond CET1 | 0.00 | 0.27 | 1.82 |
-| AT1 and Tier 2 used, of 0.80 | 0.00 | 0.27 | 0.80 |
-| Senior non-preferred used, of 1.00 | 0.00 | 0.00 | 1.00 |
-| Senior preferred used, of 2.37 | 0.00 | 0.00 | 0.02 |
-| Available MREL covers the need | yes | yes | no |
+"Loss revealed" without decisions (R/E/F = day of recovery, early intervention, flag):
 
-Breakpoint: 7.9% of the loan book. Liquidation branch (haircut 10/20/35%): uncovered deposits lose 0 / 0 / 1.33 of 7.95; senior preferred debt and other liabilities lose 0 / 2.68 / 7.53 of 7.53; DGS pays out 22.92 and recovers it in full.
-- `pytest -q` -> `1206 passed`, with tests on stack ordering, the breakpoint and the liquidation order. App checked in the browser.
+| Bank | Stages | Outcome at day 30 | Deposits lost | CET1 ratio at the end |
+|---|---|---|---|---|
+| Universal | 3/3/3 | under stress | 48% | 2.0% |
+| Retail | 3/3/3 | under stress | 28% | 8.0% |
+| Digital | 3/3/3 | under stress | 34% | 4.2% |
+| Specialised | 3/3/11 | under stress | 60% | 10.1% |
 
-## Deviations and choices (approved 2026-11-12/13)
-- Other liabilities above AT1/T2 are not bailed in; in liquidation they rank with senior preferred debt. Order used in this model, not law.
-- Sale of business is computed like bail-in: no buyer and no price. The model stops when the tool is applied.
-- Available MREL at FOLTF is CET1 at that day plus AT1/T2 and senior non-preferred debt; it can be below the requirement after losses.
+No stage is reached before the loss; early intervention is triggered by capital on day 3; ELA is unavailable below the requirement. The other 16 pairs are unchanged from phase C1.
+- `pytest -q` -> `1262 passed`, including "no exported document without the SIMULATION label" in both exercise types and the four domain checks on the new scenario.
+
+## Deviations and choices (approved 2026-11-13)
+- The designer filters presets; it does not generate scenarios. System-wide is shown as not available until several banks are modelled (phase F).
+- The app's Timeline tab keeps its name; the Handbook term is used in the documents.
+- Config and code still call the five recipients "actors". Bank management moves to a control-team role card in part b, which is when the split into players and simulated stakeholders is made.
 
 ## Open questions
-- All resolution wording, the stack assumptions and the write-down levels need a practitioner's review.
-- Screenshots in docs/screenshots/ predate phases A to C2. A 500-run pass on a 30-day run takes about 1 s.
+- In "Loss revealed" no bank defaults on payments within 30 days: the failure is on capital, so the outcome depends on when FoLtF is declared.
+- Players' documents still hold all injects of a player in one file; inject sheets, expected responses and the main events list are part b.
+- Wording of scenarios, injects and resolution texts is a draft. Screenshots in docs/screenshots/ are out of date.

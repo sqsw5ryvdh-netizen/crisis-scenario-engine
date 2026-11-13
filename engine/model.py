@@ -30,6 +30,7 @@ Accounting conventions:
 - Stable core: only the flight-prone share of each category's opening stock can leave; the
   run-off rate applies to what is left of that share.
 - A scenario may let its severity fade towards a floor once its trigger is over.
+- A news event can reveal a loss on the loan book: it is written off against CET1 that day.
 - Calendar: day 1 is the scenario's start weekday. On weekend days there is no market sale
   and no central bank drawing, maturities move to Monday, and reduced withdrawal requests
   are paid from cash only; the rest waits for Monday as "requested, not yet settled". Nobody
@@ -103,7 +104,8 @@ class BankState:
     # Emergency liquidity assistance drawn, and the loans pledged for it.
     ela_funding: float = 0.0
     encumbered_illiquid: float = 0.0
-    # Loans sold through a recovery option (a record; they do not use fire-sale capacity).
+    # Loans that left the book other than by fire sale: sold through a recovery option, or
+    # written off when a loss was revealed (a record; they do not use fire-sale capacity).
     portfolio_sold: float = 0.0
     # Part of each deposit category that never leaves (same order as DEPOSIT_CATEGORIES).
     stable_core: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
@@ -201,14 +203,14 @@ class SimulationResult:
     # stabilised | emergency_funding | under_stress | payments_default | a resolution tool
     outcome: str = OUTCOME_UNDER_STRESS
     end_day: int = 0  # last simulated day
-    foltf_day: Optional[int] = None  # day the FOLTF declaration is in effect
+    foltf_day: Optional[int] = None  # day the FoLtF declaration is in effect
     decision_log: tuple[DecisionRecord, ...] = ()
     # Actors whose reporting delay was shortened by a decision, and from which day.
     faster_reporting_from: tuple[tuple[str, int], ...] = ()
     scorecard: Optional[Scorecard] = None
     # First day from which the flag conditions no longer hold (None: never raised, or standing).
     flag_cleared_day: Optional[int] = None
-    # FOLTF is in effect on a Saturday: it was declared after the Friday close.
+    # FoLtF is in effect on a Saturday: it was declared after the Friday close.
     resolution_weekend: bool = False
 
     @cached_property
@@ -359,6 +361,27 @@ def sell_portfolio(
         rwa=state.rwa * illiquid_after / state.illiquid_assets,
     )
     return new_state, proceeds, loss
+
+
+def book_loan_loss(state: BankState, share: float) -> tuple[BankState, float]:
+    """A loss on the loan book is revealed: `share` of the loans is written off against CET1.
+
+    The loss is capped at the capital left, so CET1 never goes below zero. Risk-weighted
+    assets fall in proportion, as they do when loans are sold. Returns (state, loss).
+    """
+    loss = min(share * state.illiquid_assets, max(0.0, state.cet1))
+    if loss <= 0:
+        return state, 0.0
+    loans_after = state.illiquid_assets - loss
+    new_state = replace(
+        state,
+        illiquid_assets=loans_after,
+        encumbered_illiquid=min(state.encumbered_illiquid, loans_after),
+        portfolio_sold=state.portfolio_sold + loss,  # not a fire sale
+        cet1=max(0.0, state.cet1 - loss),
+        rwa=state.rwa * loans_after / state.illiquid_assets,
+    )
+    return new_state, loss
 
 
 def fund_outflow(
@@ -647,7 +670,7 @@ def _row(
 ) -> dict:
     outflow_total = outflow_deposits + outflow_wholesale
     buffer = liquidity_buffer(state, central_bank_usable, p, ela_headroom)
-    row = {"day": day, "weekday": "", "weekend": False, "status": status}
+    row = {"day": day, "weekday": "", "weekend": False, "loan_loss": 0.0, "status": status}
     for name, stock in zip(DEPOSIT_CATEGORIES, state.deposits):
         row[f"dep_{name}"] = stock
     row.update(
@@ -1061,10 +1084,15 @@ def simulate(
 
         # 1. Run-off, at the severity in effect today (it may fade after the trigger).
         severity = severity_on(day)
+        loan_loss = 0.0
         for event in scenario.news_events:
             if event.day == day:
                 shock += event.panic_shock
                 events.append(Event(day, "news", event.headline))
+                if event.loan_loss_share > 0:
+                    state, written_off = book_loan_loss(state, event.loan_loss_share)
+                    loan_loss += written_off
+        portfolio_loss += loan_loss
         x = next_x(state, shock)
         loss_seen = loss_share(state)
         multiplier = panic_multiplier(x, p)
@@ -1138,6 +1166,7 @@ def simulate(
         row["status"] = _STAGES[stage]
         row["weekday"] = scenario.weekday(day)
         row["weekend"] = weekend(day)
+        row["loan_loss"] = loan_loss
         rows.append(row)
 
         if stage == _FAILED_STAGE:

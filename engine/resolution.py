@@ -1,4 +1,4 @@
-"""Resolution block (SPEC_V2 phase C2): what happens to capital and creditors at FOLTF.
+"""Resolution block (SPEC_V2 phase C2): what happens to capital and creditors at FoLtF.
 
 Pure functions, computed after a run from its last day; nothing here feeds back into the
 simulation. The valuation write-down is not known: the control team picks a low, central or
@@ -67,7 +67,7 @@ class ResolutionSummary:
     shortfall: float  # what the stack cannot cover
     # MREL.
     mrel_requirement: float
-    mrel_available: float  # CET1 at FOLTF + AT1/T2 + senior non-preferred
+    mrel_available: float  # CET1 at FoLtF + AT1/T2 + senior non-preferred
     mrel_sufficient: bool  # the need is covered without touching senior preferred debt
     # Write-down, as a share of the loan book, at which available MREL is no longer enough.
     # None: it is enough for any write-down up to the whole loan book.
@@ -135,7 +135,7 @@ def resolution_summary(
 ) -> Optional[ResolutionSummary]:
     """The resolution figures of a run that ends with a resolution tool or in liquidation.
 
-    None for any other run: without FOLTF and a tool there is nothing to resolve.
+    None for any other run: without FoLtF and a tool there is nothing to resolve.
     """
     tool = result.outcome
     if tool not in RESOLUTION_TOOLS + ("liquidation",):
@@ -260,10 +260,10 @@ def summary_rows(summary: ResolutionSummary, unit: str) -> list[tuple[str, str]]
             "liquidation": "Liquidation"}[summary.tool]
     rows = [
         ("Tool", tool),
-        ("FOLTF in effect", "n/a" if summary.foltf_day is None else f"Day {summary.foltf_day}"
+        ("FoLtF in effect", "n/a" if summary.foltf_day is None else f"Day {summary.foltf_day}"
          + (" (after a Friday close: resolution weekend)" if summary.resolution_weekend else "")),
-        (f"Losses booked before FOLTF ({unit})", amount(summary.losses_to_date)),
-        (f"CET1 at FOLTF ({unit})", amount(summary.cet1_at_foltf)),
+        (f"Losses booked before FoLtF ({unit})", amount(summary.losses_to_date)),
+        (f"CET1 at FoLtF ({unit})", amount(summary.cet1_at_foltf)),
         ("Valuation write-down (assumed, share of the loan book)",
          f"{100 * summary.writedown_share:.0f}% ({summary.level})"),
         (f"Valuation write-down ({unit})", amount(summary.writedown)),
@@ -281,7 +281,7 @@ def summary_rows(summary: ResolutionSummary, unit: str) -> list[tuple[str, str]]
         rows.append((f"Shortfall the stack cannot cover ({unit})", amount(summary.shortfall)))
     rows += [
         (f"MREL requirement ({unit})", amount(summary.mrel_requirement)),
-        (f"Available MREL at FOLTF ({unit})", amount(summary.mrel_available)),
+        (f"Available MREL at FoLtF ({unit})", amount(summary.mrel_available)),
         ("Available MREL covers the need", "yes" if summary.mrel_sufficient else "no"),
         ("Write-down at which available MREL is no longer enough",
          "none up to the whole loan book" if summary.breakpoint_share is None

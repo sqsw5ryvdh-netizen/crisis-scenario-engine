@@ -151,7 +151,7 @@ def test_higher_severity_never_defaults_later_with_the_calendar_on(bank, scenari
 
 
 def test_moratorium_and_settlement_count_business_days():
-    # Geopolitical shock: day 10 is a Friday, so FOLTF and the moratorium start on Saturday.
+    # Geopolitical shock: day 10 is a Friday, so FoLtF and the moratorium start on Saturday.
     held = run(
         "retail", "geopolitical",
         Choice("declare_foltf", "declare", 10), Choice("moratorium", "two_days", 10),
@@ -173,7 +173,7 @@ def test_resolution_weekend_flag_marks_foltf_after_a_friday_close():
     assert run_path(SHOWCASE.bank, SHOWCASE.scenario, SHOWCASE.path).resolution_weekend
     midweek = run_path("universal", "fast_run", "early_foltf")
     assert midweek.foltf_day == 2 and not midweek.resolution_weekend
-    assert not run("retail", "geopolitical").resolution_weekend  # no FOLTF at all
+    assert not run("retail", "geopolitical").resolution_weekend  # no FoLtF at all
 
 
 # ------------------------------------------------- the queue is visible (review change 1)
@@ -192,13 +192,13 @@ def test_requested_not_yet_settled_is_in_the_figures_and_in_the_liquidity_need()
     )
     pack = showcase_pack()
     files = pack_files(pack, SCRIPT, DECISIONS)
-    authority = docx_text(files["participants/resolution_authority.docx"])
+    authority = docx_text(files["players/resolution_authority.docx"])
     assert "Requested, not yet settled" in authority
     last = [i for i in pack.branches[1].injects["resolution_authority"] if i.figures][-1]
     queued = next(f for f in last.figures if f.name == "queued_withdrawals")
     assert queued.value > 0  # the weekend's requests, seen a day late
-    facilitator = docx_text(files["facilitator/facilitator_pack.docx"])
-    assert "requested but not yet settled" in facilitator and "Requested, not settled" in facilitator
+    control_text = docx_text(files["control_team/control_team_pack.docx"])
+    assert "requested but not yet settled" in control_text and "Requested, not settled" in control_text
 
 
 # ------------------------------------------------- stage events carry their figures
@@ -256,7 +256,7 @@ def test_only_bank_management_gets_the_outflow_by_time_block():
     outflow = next(f for f in report.figures if f.name == "outflow_total" and not f.block)
     assert [f.block for f in blocks] == list(INTRADAY_BLOCKS.values())
     assert sum(f.value for f in blocks) == pytest.approx(outflow.value)
-    text = docx_text(pack_files(pack, SCRIPT, DECISIONS)["participants/bank_management.docx"])
+    text = docx_text(pack_files(pack, SCRIPT, DECISIONS)["players/bank_management.docx"])
     assert "allocation of the daily figure" in text and "Outflow 09:00-12:00" in text
 
 
@@ -272,7 +272,7 @@ def test_showcase_is_about_ten_days_and_crosses_a_weekend():
     # The bank is likely to fail on the Monday after the first weekend ...
     assert late.likely_to_fail_day == result.likely_to_fail_day == 6
     assert table.loc[6, "weekday"] == "Monday" and table.loc[4:5, "weekend"].all()
-    # ... FOLTF is declared after the close of the second Friday ...
+    # ... FoLtF is declared after the close of the second Friday ...
     assert log["declare_foltf"].decided_day == 10 and table.loc[10, "weekday"] == "Friday"
     assert result.foltf_day == 11 and result.resolution_weekend
     # ... the tool is decided on Sunday and applies on Monday.
@@ -290,14 +290,14 @@ def test_cli_exports_the_showcase(tmp_path, capsys):
     assert main(["--showcase", "--export-dir", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     stem = f"exercise_pack_{SHOWCASE.bank}_{SHOWCASE.scenario}"
-    assert "Decision path: FOLTF on the second Friday, bail-in" in out
+    assert "Decision path: FoLtF on the second Friday, bail-in" in out
     assert (tmp_path / f"{stem}.zip").exists()
-    data = tmp_path / stem / "facilitator" / "data"
-    assert (data / "daily_table_branch_A.csv").exists() and (data / "daily_table_branch_B.csv").exists()
-    injects = (data / "injects.csv").read_text()
+    data = tmp_path / stem / "control_team" / "data"
+    assert (data / "SIMULATION_daily_table_branch_A.csv").exists() and (data / "SIMULATION_daily_table_branch_B.csv").exists()
+    injects = (data / "SIMULATION_injects.csv").read_text()
     assert "ambient" in injects
     assert main(["--showcase", "--no-ambient", "--export-dir", str(tmp_path / "quiet")]) == 0
-    quiet = (tmp_path / "quiet" / stem / "facilitator" / "data" / "injects.csv").read_text()
+    quiet = (tmp_path / "quiet" / stem / "control_team" / "data" / "SIMULATION_injects.csv").read_text()
     assert ",ambient," not in quiet
     with pytest.raises(SystemExit):
         main(["--export-dir", str(tmp_path)])  # neither a bank and scenario nor --showcase
@@ -355,14 +355,14 @@ def test_ambient_injects_are_placed_after_their_anchor_for_informed_recipients()
     assert {"press_enquiry", "tv_footage", "ministry_call", "depositor_association"} <= seen
 
 
-def test_facilitator_pack_lists_ambient_injects_and_known_limits():
-    text = docx_text(pack_files(showcase_pack(), SCRIPT, DECISIONS)["facilitator/facilitator_pack.docx"])
+def test_control_team_pack_lists_ambient_injects_and_known_limits():
+    text = docx_text(pack_files(showcase_pack(), SCRIPT, DECISIONS)["control_team/control_team_pack.docx"])
     assert "Ambient injects" in text and "no effect on any figure" in text
     assert "Press enquiry" in text and "Parliamentary question" in text
     assert "Known limits" in text
     assert "Legal loss-absorption thresholds are not modelled" in text
-    assert "resolution weekend" in text  # FOLTF after a Friday close
-    off = docx_text(pack_files(showcase_pack(False), SCRIPT, DECISIONS)["facilitator/facilitator_pack.docx"])
+    assert "resolution weekend" in text  # FoLtF after a Friday close
+    off = docx_text(pack_files(showcase_pack(False), SCRIPT, DECISIONS)["control_team/control_team_pack.docx"])
     assert "Ambient injects are switched off in this pack." in off
 
 

@@ -2,6 +2,10 @@
 # severity multiplies every deposit category's base run-off rate (1.0 = baseline).
 # panic_shock is added to x in the panic multiplier from the event day onwards.
 # overrides replace parameters of model.yaml for this scenario only.
+# taxonomy: the scenario's place in the EBA Handbook's taxonomy (EBA/REP/2025/20, par. 115):
+#   issue (liquidity, solvency, operational, combination), scope (idiosyncratic, system_wide),
+#   speed (slow_burning, rapid_solvency, fast_burning_liquidity).
+# news_events may carry loan_loss_share: a loss revealed that day, written off against CET1.
 # start_weekday (optional, default Monday): weekday of day 1; weekends follow from it.
 # fade (optional): from from_day on, severity moves towards floor, halving the distance every
 # half_life_days. Without it the severity stays constant for the whole horizon.
@@ -9,6 +13,10 @@
 fast_run:
   name: Fast digital run
   description: Social-media driven run that unfolds over hours to days.
+  taxonomy:
+    issue: liquidity
+    scope: idiosyncratic
+    speed: fast_burning_liquidity
   severity:
     value: 3.0
     low: 2.0
@@ -26,6 +34,10 @@ fast_run:
 slow_burn:
   name: Slow burn
   description: Weeks of gradual confidence erosion.
+  taxonomy:
+    issue: liquidity
+    scope: idiosyncratic
+    speed: slow_burning
   # Set so that the universal archetype loses about a quarter of its deposits in 30 days,
   # the order of magnitude of one documented case (docs/CALIBRATION.md, section 7). Re-set
   # in phase C1: weekends slow the run, so the same target needs a higher severity.
@@ -49,6 +61,11 @@ slow_burn:
 cyber_outage:
   name: Cyber/ICT outage
   description: Payments are blocked for three days; queued withdrawals are paid when service returns, then the pressure eases quickly.
+  taxonomy:
+    issue: operational
+    scope: idiosyncratic
+    speed: slow_burning
+    note: An operational failure; the liquidity effect is mild and fades.
   # A technical incident, clearly milder than the fast run: set in phase B2 so that the day
   # the queue is released costs about half the fast run's worst day. ASSUMPTION.
   severity:
@@ -96,6 +113,11 @@ geopolitical:
   # Day 1 is a Wednesday, so that the second Friday is day 10 (the showcase run).
   start_weekday: Wednesday
   description: Market haircuts widen and wholesale funding markets close from day 1.
+  taxonomy:
+    issue: liquidity
+    scope: idiosyncratic
+    speed: slow_burning
+    note: The trigger is market-wide, but only one bank is modelled, so the scenario is idiosyncratic here.
   severity:
     value: 1.5
     low: 1.0
@@ -146,6 +168,31 @@ geopolitical:
     - day: 6
       headline: Press reports the bank's exposure to the affected region.
       panic_shock: 0.04
+
+loss_revealed:
+  name: Loss revealed
+  description: A large loss on the loan book is revealed; capital falls first and liquidity follows.
+  taxonomy:
+    issue: solvency
+    scope: idiosyncratic
+    speed: rapid_solvency
+  # Solvency-led (SPEC_V3 phase G): the loss and every other value are ASSUMPTION.
+  # Little happens before the loss is revealed on day 3; then capital is below the
+  # requirement at once and deposits leave over the following weeks.
+  severity:
+    value: 0.6
+    unit: multiplier
+    source: ASSUMPTION
+    low: 0.4
+    high: 1.0
+  news_events:
+    - day: 3
+      headline: After an audit, the bank announces a large loss on its loan book.
+      panic_shock: 0.10
+      loan_loss_share: 0.06
+    - day: 4
+      headline: Analysts question whether the bank still meets its capital requirement.
+      panic_shock: 0.05
 
 baseline:
   name: Baseline (no own trigger)

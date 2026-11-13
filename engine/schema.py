@@ -196,6 +196,8 @@ class NewsEvent(StrictModel):
     headline: str = Field(min_length=1)
     # Added to the panic input on that day; negative for a reassuring event.
     panic_shock: float
+    # A loss revealed that day, as a share of the loan book: it is written off against CET1.
+    loan_loss_share: float = Field(default=0.0, ge=0, lt=1)
 
 
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -231,9 +233,51 @@ class SeverityFade(StrictModel):
         return floor + (severity - floor) * remaining
 
 
+# The EBA Handbook's scenario taxonomy (EBA/REP/2025/20, par. 115): value -> label.
+TAXONOMY = {
+    "issue": {
+        "liquidity": "Liquidity",
+        "solvency": "Solvency",
+        "operational": "Operational",
+        "combination": "Combination",
+    },
+    "scope": {
+        "idiosyncratic": "Idiosyncratic",
+        "system_wide": "System-wide",
+    },
+    "speed": {
+        "slow_burning": "Slow burning",
+        "rapid_solvency": "Rapid solvency issue",
+        "fast_burning_liquidity": "Fast burning liquidity issue",
+    },
+}
+TAXONOMY_TITLES = {"issue": "Type of issue", "scope": "Systemic relevance", "speed": "Speed of events"}
+
+
+class Taxonomy(StrictModel):
+    """Where a scenario sits in the Handbook's taxonomy."""
+
+    issue: str
+    scope: str
+    speed: str
+    note: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> "Taxonomy":
+        for dimension, values in TAXONOMY.items():
+            if getattr(self, dimension) not in values:
+                raise ValueError(f"taxonomy.{dimension} must be one of {list(values)}")
+        return self
+
+    def label(self) -> str:
+        return ", ".join(TAXONOMY[d][getattr(self, d)].lower() for d in TAXONOMY)
+
+
 class Scenario(StrictModel):
     name: str = Field(min_length=1)
     description: str = ""
+    # Place in the Handbook's taxonomy; none for the calm baseline, which is not a crisis.
+    taxonomy: Optional[Taxonomy] = None
     severity: Parameter
     # Optional: the pressure eases after the trigger is over (none = constant severity).
     fade: Optional[SeverityFade] = None
@@ -336,7 +380,7 @@ class ModelParams(StrictModel):
     # projected below the requirement over the same number of days.
     likely_to_fail_survival_days: Parameter
     # Resolution (computed after a run, never during it): the write-down of the loan book
-    # found by the valuation at FOLTF, and the value lost on it in a liquidation. Each has a
+    # found by the valuation at FoLtF, and the value lost on it in a liquidation. Each has a
     # low, central and high value; the control team picks one.
     resolution_writedown_share: Parameter
     liquidation_haircut: Parameter
@@ -562,7 +606,7 @@ class FasterReporting(StrictModel):
 class ActorInformation(StrictModel):
     """What an actor knows, and how late (SPEC_V2 phase D).
 
-    The delay applies to figures. Stage changes, payments default, FOLTF and resolution are
+    The delay applies to figures. Stage changes, payments default, FoLtF and resolution are
     notified the same day to every actor that is already informed.
     """
 
@@ -656,7 +700,7 @@ class DecisionsConfig(StrictModel):
 # --------------------------------------------------------------------------- script
 
 # Kinds of inject and the placeholders their text may use. No placeholder carries a figure:
-# every number in a participant's document comes from the actor's information set.
+# every number in a player's document comes from the actor's information set.
 SCRIPT_TEXTS = {
     "opening": ("bank_name", "scenario_name"),
     "news": ("headline",),
@@ -726,12 +770,12 @@ RESOLUTION_FIGURE_GROUPS = ("capital", "mrel", "losses", "liquidity")
 
 
 class ResolutionInject(StrictModel):
-    """An inject of the resolution period, between FOLTF and the tool (SPEC_V2 phase C2)."""
+    """An inject of the resolution period, between FoLtF and the tool (SPEC_V2 phase C2)."""
 
     title: str = Field(min_length=1)
     sender: str = Field(min_length=1)
     recipients: list[str]
-    offset_days: int = Field(ge=0)  # days after FOLTF is in effect
+    offset_days: int = Field(ge=0)  # days after FoLtF is in effect
     time: str
     text: str = Field(min_length=1)
     figures: list[str] = Field(default_factory=list)
@@ -777,7 +821,7 @@ class ScriptConfig(StrictModel):
     # One question per decision, put to the deciding actor.
     questions: dict[str, str]
     coordination: dict[str, Coordination]
-    # Optional background injects; the facilitator can switch them off.
+    # Optional background injects; the control team can switch them off.
     ambient: dict[str, AmbientInject] = Field(default_factory=dict)
     # Injects of the resolution period, in order.
     resolution: dict[str, ResolutionInject] = Field(default_factory=dict)

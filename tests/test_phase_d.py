@@ -1,4 +1,4 @@
-"""SPEC_V2 phase D: information sets, injects per actor, branches, facilitator pack, export."""
+"""SPEC_V2 phase D: information sets, injects per actor, branches, control team pack, export."""
 
 import io
 import re
@@ -47,7 +47,7 @@ def pack_for(bank: str, scenario: str, *paths: str, extra: tuple = ()):
 
 @pytest.fixture(scope="module")
 def acceptance():
-    """The acceptance export: universal bank, fast run, act late against early FOLTF."""
+    """The acceptance export: universal bank, fast run, act late against early FoLtF."""
     return pack_for("universal", "fast_run", "act_late", "early_foltf")
 
 
@@ -220,7 +220,7 @@ def test_no_actor_is_given_a_figure_outside_its_information_set(acceptance, acto
 def test_resolution_authority_document_shows_only_what_it_had_at_that_time(acceptance):
     """Acceptance: a reader with only this document cannot see figures the authority lacked."""
     files = pack_files(acceptance, SCRIPT, DECISIONS)
-    text = docx_text(files["participants/resolution_authority.docx"])
+    text = docx_text(files["players/resolution_authority.docx"])
     printed = set(FIGURE_TOKEN.findall(text))
     allowed = allowed_tokens(acceptance, "resolution_authority")
     assert printed and printed <= allowed, printed - allowed
@@ -306,7 +306,7 @@ def test_stage_notifications_flow_from_the_bank_to_the_authority_to_the_others(a
 def test_information_gate_holds_for_other_banks_scenarios_and_paths(bank, scenario, actor):
     pack = pack_for(bank, scenario, "support_package", "early_foltf_liquidation")
     check_gate(pack, actor)
-    text = docx_text(pack_files(pack, SCRIPT, DECISIONS)[f"participants/{actor}.docx"])
+    text = docx_text(pack_files(pack, SCRIPT, DECISIONS)[f"players/{actor}.docx"])
     assert set(FIGURE_TOKEN.findall(text)) <= allowed_tokens(pack, actor)
 
 
@@ -414,7 +414,7 @@ def test_a_decision_is_offered_only_when_it_is_open(acceptance):
     due = lambda branch, actor: {  # noqa: E731
         i.decision_due.decision for i in branch.injects[actor] if i.decision_due
     }
-    # The resolution authority can act only once FOLTF is declared: branch B only.
+    # The resolution authority can act only once FoLtF is declared: branch B only.
     assert due(late, "resolution_authority") == set()
     assert due(early, "resolution_authority") == {"moratorium", "resolution_tool"}
     assert due(late, "central_bank") == due(early, "central_bank") == {"ela"}
@@ -441,7 +441,7 @@ def test_deadlines_are_relative_to_the_branch_being_read(acceptance):
                 assert inject.decision_due.deadline_shared
         for _, injects in document.branches:
             assert not any(i.decision_due.deadline_shared for i in injects if i.decision_due)
-    text = docx_text(pack_files(acceptance, SCRIPT, DECISIONS)["participants/central_bank.docx"])
+    text = docx_text(pack_files(acceptance, SCRIPT, DECISIONS)["players/central_bank.docx"])
     assert "The branches have different deadlines; this is the earlier one." in text
     # A branch that runs to the horizon has a fixed window instead.
     window = int(SCRIPT.decision_window_days.value)
@@ -500,12 +500,12 @@ def test_one_path_gives_documents_without_branches():
         pack_for("universal", "fast_run", "act_late", "ela_granted", "early_foltf")
 
 
-def test_participant_documents_do_not_give_the_outcome_away(acceptance):
+def test_player_documents_do_not_give_the_outcome_away(acceptance):
     files = pack_files(acceptance, SCRIPT, DECISIONS)
     for actor in ACTORS:
-        text = docx_text(files[f"participants/{actor}.docx"])
+        text = docx_text(files[f"players/{actor}.docx"])
         for path in DECISIONS.paths.values():
-            assert path.name not in text  # branch names stay with the facilitator
+            assert path.name not in text  # branch names stay with the control team
         assert acceptance.scenario_name not in text
         for outcome in ("stabilised", "emergency_funding", "under_stress"):
             assert OUTCOME_LABELS[outcome] not in text
@@ -513,7 +513,7 @@ def test_participant_documents_do_not_give_the_outcome_away(acceptance):
         assert SCRIPT.draft_notice in text and SCRIPT.disclaimer in text
 
 
-# ------------------------------------------------- facilitator pack
+# ------------------------------------------------- control team pack
 
 
 def test_decision_points_show_where_each_option_leads(acceptance):
@@ -535,9 +535,9 @@ def test_decision_points_show_where_each_option_leads(acceptance):
     assert late[branch_code(DECISIONS, "ela", "not_decided")].outcome == "payments_default"
 
 
-def test_facilitator_pack_has_full_information(acceptance):
+def test_control_team_pack_has_full_information(acceptance):
     files = pack_files(acceptance, SCRIPT, DECISIONS)
-    text = docx_text(files["facilitator/facilitator_pack.docx"])
+    text = docx_text(files["control_team/control_team_pack.docx"])
     for branch in acceptance.branches:
         assert f"Branch {branch.label}: {branch.name}" in text
         assert OUTCOME_LABELS[branch.result.outcome] in text
@@ -546,30 +546,30 @@ def test_facilitator_pack_has_full_information(acceptance):
     late = acceptance.branches[0].result.table.set_index("day")
     assert f"{late.loc[1, 'liquidity_buffer']:.2f}" in text  # same-day figures, for everyone
     assert acceptance.scenario_name in text
-    for heading in ("Full-information timeline", "Who sees what, and how late",
+    for heading in ("Simulation operational timeline (full information)", "Who sees what, and how late",
                     "Expected coordination steps", "Questions for the debrief"):
         assert heading in text
     assert all(question in text for question in SCRIPT.debrief)
     assert "Deposit guarantee scheme" in text and "liquidity exhausted" in text
 
 
-def test_pack_holds_one_document_per_actor_the_facilitator_pack_and_the_data(acceptance):
+def test_pack_holds_one_document_per_actor_the_control_team_pack_and_the_data(acceptance):
     files = pack_files(acceptance, SCRIPT, DECISIONS)
     assert sorted(files) == sorted(
-        [f"participants/{actor}.docx" for actor in ACTORS]
-        + ["facilitator/facilitator_pack.docx"]
-        + [f"facilitator/data/{name}.csv" for name in (
+        [f"players/{actor}.docx" for actor in ACTORS]
+        + ["control_team/control_team_pack.docx"]
+        + [f"control_team/data/SIMULATION_{name}.csv" for name in (
             "injects", "decision_points", "decision_log", "resolution_summary",
             "daily_table_branch_A", "daily_table_branch_B")]
     )
-    injects = pd.read_csv(io.BytesIO(files["facilitator/data/injects.csv"]))
+    injects = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_injects.csv"]))
     assert set(injects["actor"]) == set(ACTORS) and set(injects["branch"]) == {"A", "B"}
     assert len(injects) == sum(len(b.injects[a]) for b in acceptance.branches for a in ACTORS)
-    points = pd.read_csv(io.BytesIO(files["facilitator/data/decision_points.csv"]))
+    points = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_decision_points.csv"]))
     assert len(points) == sum(len(b.decision_points) for b in acceptance.branches)
-    daily = pd.read_csv(io.BytesIO(files["facilitator/data/daily_table_branch_B.csv"]))
+    daily = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_daily_table_branch_B.csv"]))
     assert len(daily) == len(acceptance.branches[1].result.table)
-    log = pd.read_csv(io.BytesIO(files["facilitator/data/decision_log.csv"]))
+    log = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_decision_log.csv"]))
     assert set(log["branch"]) == {"B"} and "Figures as of day" in log.columns
 
 
@@ -581,12 +581,12 @@ def test_zip_is_complete_and_reproducible(acceptance):
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert archive.testzip() is None
         names = archive.namelist()
-    assert len(names) == 12 and "facilitator/facilitator_pack.docx" in names
+    assert len(names) == 12 and "control_team/control_team_pack.docx" in names
     with zipfile.ZipFile(io.BytesIO(again)) as archive:
         assert archive.namelist() == names
-        csv = archive.read("facilitator/data/injects.csv")
+        csv = archive.read("control_team/data/SIMULATION_injects.csv")
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
-        assert archive.read("facilitator/data/injects.csv") == csv
+        assert archive.read("control_team/data/SIMULATION_injects.csv") == csv
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
@@ -610,13 +610,13 @@ def test_cli_exports_the_pack(tmp_path, capsys):
     out = capsys.readouterr().out
     stem = "exercise_pack_universal_fast_run"
     assert (tmp_path / f"{stem}.zip").exists() and f"{stem}.zip" in out
-    assert (tmp_path / stem / "participants" / "resolution_authority.docx").exists()
-    assert (tmp_path / stem / "facilitator" / "data" / "daily_table_branch_B.csv").exists()
+    assert (tmp_path / stem / "players" / "resolution_authority.docx").exists()
+    assert (tmp_path / stem / "control_team" / "data" / "SIMULATION_daily_table_branch_B.csv").exists()
     # The same path twice gives a single branch.
     assert main(["--bank", "retail", "--scenario", "slow_burn", "--export-dir", str(tmp_path)]) == 0
-    single = tmp_path / "exercise_pack_retail_slow_burn" / "facilitator" / "data"
-    assert (single / "daily_table_branch_A.csv").exists()
-    assert not (single / "daily_table_branch_B.csv").exists()
+    single = tmp_path / "exercise_pack_retail_slow_burn" / "control_team" / "data"
+    assert (single / "SIMULATION_daily_table_branch_A.csv").exists()
+    assert not (single / "SIMULATION_daily_table_branch_B.csv").exists()
     with pytest.raises(SystemExit):
         main(args + ["--compare-path", "no_such_path"])
 

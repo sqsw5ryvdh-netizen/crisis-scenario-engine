@@ -395,7 +395,18 @@ Outcome of the 16 bank and scenario pairs after these changes: `docs/STATUS.md`.
   the wholesale funding beyond the horizon), the MREL requirement as a share of RWA (27%,
   24%, 22%, 22%), and the whole stack of the digital and specialised archetypes. The
   Transparency Exercise file used here has no MREL or creditor-hierarchy items.
-- **Write-down at FOLTF**: 2%, 4% or 8% of the loan book, and **liquidation haircut**: 10%,
+- **Write-down at FoLtF**: 2%, 4% or 8% of the loan book, and **liquidation haircut**: 10%,
   20% or 35%, in `config/model.yaml`. All `ASSUMPTION`; the control team picks the level.
 - The order in which losses are absorbed is the order used in this model, not a statement
   of law, and legal loss-absorption thresholds are not modelled.
+
+## 13. Changes in SPEC_V3 phase G, part a
+
+- **Solvency-led scenario "Loss revealed"**, in `config/scenarios.yaml`: on day 3 a loss of 6%
+  of the loan book is written off against CET1, with a panic shock of 0.10 that day and 0.05
+  the next, at a severity of 0.6. All `ASSUMPTION`: the loss size was chosen so that three
+  of the four archetypes fall below their capital requirement on that day, and the
+  severity so that little happens before the loss is revealed. It is not based on any case.
+- **Taxonomy labels** of the scenarios follow paragraph 115 of the EBA Handbook
+  (EBA/REP/2025/20). Placing a scenario in the taxonomy is a judgement of this project, not
+  data.

@@ -1,14 +1,14 @@
 # Exercise script (SPEC_V2 phase D): texts, clock times and coordination steps.
 #
-# No text here may carry a figure. Every number in a participant's document is added by the
-# engine from that participant's information set (config/decisions.yaml, `information`).
+# No text here may carry a figure. Every number in a player's document is added by the
+# engine from that player's information set (config/decisions.yaml, `information`).
 # The placeholders each text may use are fixed in engine/schema.py (SCRIPT_TEXTS).
 #
 # DRAFT: all wording, the coordination steps and the debrief questions were drafted for this
 # prototype and have not been reviewed by a practitioner. They contain no legal references.
 
 # The run the app opens on, the guided demo follows and `--showcase` exports: about ten days,
-# across one weekend, to a FOLTF declaration on a Friday evening and a resolution weekend.
+# across one weekend, to a FoLtF declaration on a Friday evening and a resolution weekend.
 showcase:
   bank: retail
   scenario: geopolitical
@@ -77,7 +77,7 @@ texts:
   end_open: >-
     The exercise ends after {horizon_days} days. {bank_name} is still open.
 
-# Ambient injects: background noise with no effect on any figure. The facilitator can switch
+# Ambient injects: background noise with no effect on any figure. The control team can switch
 # them off. Each is placed `offset_days` after its anchor (a stage, or "foltf") if the run
 # gets there, and only for recipients that are informed by then. Texts carry no figures.
 ambient:
@@ -142,8 +142,8 @@ ambient:
       An association of depositors asks when and how customers of {bank_name} will have
       access to their money, and where they should turn for information.
 
-# Injects of the resolution period: after FOLTF is in effect and before the tool applies.
-# Each is placed `offset_days` after the FOLTF day (never after the last day of the run).
+# Injects of the resolution period: after FoLtF is in effect and before the tool applies.
+# Each is placed `offset_days` after the FoLtF day (never after the last day of the run).
 # figures: groups of resolution figures it carries (capital, mrel, losses, liquidity). They are
 # estimates that rest on an assumed write-down; the control team picks low, central or high.
 resolution:
@@ -254,13 +254,13 @@ glossary:
     definition: The bank's highest-quality capital divided by its risk-weighted assets. It must stay above the capital requirement.
   - term: ELA
     definition: Emergency liquidity assistance. Central bank lending against wider collateral than usual, to a bank judged solvent.
-  - term: FOLTF
+  - term: FoLtF
     definition: Failing or likely to fail. The formal declaration, by the competent authority, that opens the way to resolution or liquidation.
   - term: Likely to fail (warning)
     definition: A warning computed by the model when liquidity covers only a few days of outflows or capital is projected below the requirement. It is not the formal declaration.
   - term: Moratorium
-    definition: A short suspension of the bank's payments, decided by the resolution authority after FOLTF.
+    definition: A short suspension of the bank's payments, decided by the resolution authority after FoLtF.
   - term: Covered deposits
     definition: Deposits protected by the deposit guarantee scheme. In this model they are the insured retail deposits.
   - term: Branch
-    definition: One way the exercise can continue after a decision. Each option of a decision carries a branch code; the facilitator pack says where each branch leads.
+    definition: One way the exercise can continue after a decision. Each option of a decision carries a branch code; the control team pack says where each branch leads.

@@ -13,7 +13,7 @@ from engine.export import pack_files, pack_to_zip
 from engine.model import SimulationResult, simulate
 from engine.montecarlo import describe_failure_day, run_monte_carlo, summarise
 from engine.resolution import LEVELS, breakpoint_text, resolution_summary, summary_rows
-from engine.script import build_pack
+from engine.script import MODES, build_pack
 
 # column in the result table -> (header, format)
 _COLUMNS = {
@@ -67,13 +67,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--no-ambient", action="store_true", help="leave the ambient injects out of the pack"
     )
     parser.add_argument(
+        "--mode", choices=MODES, default="dynamic",
+        help="type of exercise: dynamic (decisions change the course, two branches) or "
+        "linear (one fixed path, decisions are only recorded)",
+    )
+    parser.add_argument(
         "--writedown", choices=LEVELS, default="central",
-        help="valuation write-down at FOLTF used in the resolution summary (an assumption)",
+        help="valuation write-down at FoLtF used in the resolution summary (an assumption)",
     )
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
     parser.add_argument(
         "--export-dir", type=Path,
-        help="write the exercise pack here: one document per actor, facilitator pack, data",
+        help="write the exercise pack here: one document per actor, control team pack, data",
     )
     parser.add_argument(
         "--compare-path",
@@ -195,6 +200,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             bank, config.model, scenario, config.decisions, config.script, branches,
             ambient=not args.no_ambient,
             writedown_level=args.writedown,
+            mode=args.mode,
         )
         stem = f"exercise_pack_{args.bank}_{args.scenario}"
         args.export_dir.mkdir(parents=True, exist_ok=True)

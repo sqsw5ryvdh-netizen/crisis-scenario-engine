@@ -147,7 +147,8 @@ def test_fire_sales_stay_within_accumulated_capacity(bank, scenario):
     table = run(bank, scenario).table
     initial = table["illiquid_assets"].iloc[0]
     share = CONFIG.model.fire_sale_daily_cap_share.value
-    sold = initial - table["illiquid_assets"]
+    # Loans written off when a loss is revealed leave the book without being sold.
+    sold = initial - table["illiquid_assets"] - table["loan_loss"].cumsum()
     assert (sold <= share * initial * table["day"] + TOL).all()
 
 

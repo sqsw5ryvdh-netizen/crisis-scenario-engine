@@ -22,7 +22,7 @@ TRIGGERS = {
     "likely_to_fail": ("Likely to fail", "#d03b3b"),
     "failure": ("Payments default", "#8f1d2c"),
     # Actions by the authorities, in a neutral colour: they are not stages of distress.
-    "foltf": ("FOLTF declared", "#52514e"),
+    "foltf": ("FoLtF declared", "#52514e"),
     "resolution": ("Run ends", "#52514e"),
 }
 # Vertical position of each trigger label (paper coordinates), staggered to avoid overlap.

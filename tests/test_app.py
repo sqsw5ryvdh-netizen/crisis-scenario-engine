@@ -115,7 +115,7 @@ def test_app_opens_on_the_showcase_run():
     assert at.selectbox(key="decision_path").value == SHOWCASE.path
     assert at.selectbox(key="dec:declare_foltf:option").value == "declare"
     assert at.number_input(key="dec:declare_foltf:day").value == 10
-    # FOLTF after the second Friday's close, resolution over the weekend, end on Monday.
+    # FoLtF after the second Friday's close, resolution over the weekend, end on Monday.
     assert (at.metric[0].value, at.metric[0].delta) == ("Avoided", "Resolution: bail-in on day 13")
     assert at.slider(key="day").value == 13
     assert any(m.value.startswith("**Day 13, Monday") for m in at.markdown)
@@ -126,8 +126,11 @@ def test_app_has_selectors_sliders_tabs_and_timeline():
     at = open_app()
     assert not at.exception
     labels = [box.label for box in at.sidebar.selectbox]
-    assert labels[:3] == ["Bank archetype", "Trigger scenario", "Decision path"]
-    assert len(labels) == 3 + len(CONFIG.decisions.decisions)  # one option box per decision
+    assert labels[:6] == [
+        "Bank archetype", "Type of issue", "Systemic relevance", "Speed of events",
+        "Trigger scenario", "Decision path",
+    ]
+    assert len(labels) == 6 + len(CONFIG.decisions.decisions)  # one option box per decision
     assert len(at.sidebar.slider) == 6
     assert [n.label for n in at.number_input] == ["Random seed"]
     assert [metric.label for metric in at.metric][:2] == ["Payments default", "Likely-to-fail flag"]

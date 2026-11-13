@@ -1,11 +1,11 @@
-"""Exercise script (SPEC_V2 phase D): injects per actor, branches and the facilitator's view.
+"""Exercise script (SPEC_V2 phase D): injects per actor, branches and the control team's view.
 
-Pure functions. These rules hold for every participant document:
+Pure functions. These rules hold for every player document:
 - an actor receives nothing before it is informed (`information.informed_from`);
 - its regular report holds figures from its own set, as old as its reporting delay;
 - a stage notification carries the figures that triggered it, of the same day, as passed on
   along the chain bank -> competent authority -> other authorities;
-- the texts carry no figures, so the figure lists are the only numbers a participant sees.
+- the texts carry no figures, so the figure lists are the only numbers a player sees.
 Notifications that reach an actor at the same time are one inject. Ambient injects are
 background noise from config and change no figure.
 """
@@ -57,6 +57,17 @@ _TITLES = {
     "end_open": "End of the exercise",
     "ambient": "Ambient",
     "resolution_step": "Resolution period",
+}
+
+
+# Linear or dynamic exercise (EBA Handbook, par. 124-126). Players and observers should
+# always know which it is, so it is stated on every document.
+MODES = ("dynamic", "linear")
+MODE_LABELS = {"dynamic": "Dynamic", "linear": "Linear"}
+MODE_TEXT = {
+    "dynamic": "This exercise is dynamic: the players' decisions change the course of events.",
+    "linear": "This exercise is linear: it follows a path fixed in advance. Decisions are "
+              "recorded but do not change the course of events.",
 }
 
 
@@ -116,7 +127,7 @@ class Inject:
 
 @dataclass(frozen=True)
 class DecisionPoint:
-    """Facilitator's view of one option of one decision: where that branch leads.
+    """control team's view of one option of one decision: where that branch leads.
 
     For the option the exported path follows, this is the path itself. For any other option
     it is a run in which the option is taken at the first possible close, the decisions
@@ -167,9 +178,11 @@ class ExercisePack:
     horizon: int
     branches: tuple[BranchScript, ...]
     documents: tuple[ActorDocument, ...]
-    information_rows: tuple[dict[str, str], ...]  # facilitator: who sees what, how late
+    information_rows: tuple[dict[str, str], ...]  # control team: who sees what, how late
     ambient_on: bool = True
-    writedown_level: str = "central"  # the level the participants' documents use
+    writedown_level: str = "central"  # the level the players' documents use
+    mode: str = "dynamic"  # dynamic | linear
+    taxonomy: str = ""  # the scenario's place in the Handbook's taxonomy, in words
 
 
 # --------------------------------------------------------------------------- helpers
@@ -218,7 +231,7 @@ def information_sentences(decisions: DecisionsConfig, actor: str) -> tuple[str, 
 
 # Which lines of the resolution summary belong to which group of figures.
 _GROUP_PREFIXES = {
-    "capital": ("Losses booked", "CET1 at FOLTF", "Valuation write-down", "CET1 after", "Need:"),
+    "capital": ("Losses booked", "CET1 at FoLtF", "Valuation write-down", "CET1 after", "Need:"),
     "mrel": ("MREL requirement", "Available MREL", "Write-down at which"),
     "losses": ("AT1 and Tier 2", "Senior non-preferred", "Senior preferred", "Uncovered deposits",
                "Covered deposits", "Shortfall", "Liquidation", "DGS", "Time to pay"),
@@ -252,6 +265,7 @@ def build_branch(
     choices: Sequence[Choice],
     ambient: bool = True,
     writedown_level: str = "central",
+    linear: bool = False,
 ) -> BranchScript:
     """Simulate one decision path and write every actor's injects for it."""
     result = simulate(bank, params, scenario, decisions, choices)
@@ -415,7 +429,7 @@ def build_branch(
         for record in result.decision_log:
             option = decisions.decisions[record.decision].options[record.option]
             if option.effect in ("declare_foltf", "resolution_tool"):
-                continue  # announced to everyone informed by the FOLTF and end-of-run injects
+                continue  # announced to everyone informed by the FoLtF and end-of-run injects
             if actor not in script.coordination[record.decision].inform:
                 continue
             if record.effect_day > end_day or not is_informed(actor, record.decided_day):
@@ -438,7 +452,9 @@ def build_branch(
                 name=definition.name,
                 question=script.questions[key],
                 options=tuple(
-                    OptionLine(option_key, option.name, branch_code(decisions, key, option_key),
+                    # A linear exercise has no branches to refer to.
+                    OptionLine(option_key, option.name,
+                               "" if linear else branch_code(decisions, key, option_key),
                                option_key == definition.default_option)
                     for option_key, option in definition.options.items()
                 ),
@@ -497,7 +513,7 @@ def build_branch(
             )
         out.sort(key=lambda i: (i.day, i.time, _KIND_ORDER.index(i.kind)))
 
-    # Facilitator: where each option of each open decision leads on this path.
+    # Control team: where each option of each open decision leads on this path.
     points = []
     for key, definition in decisions.decisions.items():
         open_day = open_days[key]
@@ -566,17 +582,23 @@ def build_pack(
     paths: Sequence[tuple[str, Sequence[Choice]]],
     ambient: bool = True,
     writedown_level: str = "central",
+    mode: str = "dynamic",
 ) -> ExercisePack:
     """Build the exercise pack for one or two decision paths: (name, choices) each.
 
     With two paths every actor's document has a shared part, up to the point where the two
-    paths differ for that actor, and then one section per branch.
+    paths differ for that actor, and then one section per branch. A linear exercise uses
+    one path only (the last one given) and its decision injects carry no branch codes.
     """
     if not 1 <= len(paths) <= 2:
         raise ValueError("an exercise pack takes one or two decision paths")
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}")
+    if mode == "linear":
+        paths = paths[-1:]  # one fixed path: the last one given
     branches = tuple(
         build_branch("AB"[index], name, bank, params, scenario, decisions, script, choices,
-                     ambient, writedown_level)
+                     ambient, writedown_level, mode == "linear")
         for index, (name, choices) in enumerate(paths)
     )
 
@@ -633,4 +655,6 @@ def build_pack(
         information_rows=information_rows,
         ambient_on=ambient,
         writedown_level=writedown_level,
+        mode=mode,
+        taxonomy=scenario.taxonomy.label() if scenario.taxonomy else "",
     )

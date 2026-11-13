@@ -23,7 +23,7 @@ def test_shipped_config_loads():
     config = load_config()
     assert set(config.banks) == {"universal", "retail", "digital", "specialised"}
     assert set(config.scenarios) == {
-        "fast_run", "slow_burn", "cyber_outage", "geopolitical", "baseline",
+        "fast_run", "slow_burn", "cyber_outage", "geopolitical", "loss_revealed", "baseline",
     }
     assert config.model.horizon_days.value == 30
 

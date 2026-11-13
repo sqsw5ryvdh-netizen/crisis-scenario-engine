@@ -32,7 +32,8 @@ from engine.resolution import (
     resolution_levels,
     summary_rows,
 )
-from engine.script import build_pack
+from engine.schema import TAXONOMY, TAXONOMY_TITLES
+from engine.script import MODE_LABELS, MODE_TEXT, MODES, build_pack
 from engine.montecarlo import (
     bands,
     describe_failure_day,
@@ -87,6 +88,44 @@ def _status_label(status: str) -> str:
 @st.cache_resource
 def get_config():
     return load_config()
+
+
+# ------------------------------------------------- scenario designer
+
+
+def scenario_designer(config, default: str) -> list[str]:
+    """Filters by the EBA Handbook's taxonomy; returns the scenarios that match."""
+    chosen = {}
+    with st.expander("Scenario designer"):
+        st.caption(
+            "Filter the scenarios by the taxonomy of the EBA Handbook on simulation exercises "
+            "(par. 115): type of issue, systemic relevance, speed of events."
+        )
+        for dimension, values in TAXONOMY.items():
+            chosen[dimension] = st.selectbox(
+                TAXONOMY_TITLES[dimension],
+                ["any", *values],
+                format_func=lambda k, values=values: "Any" if k == "any" else values[k],
+                key=f"taxonomy:{dimension}",
+            )
+    active = {d: v for d, v in chosen.items() if v != "any"}
+    if not active:
+        options = list(config.scenarios)
+    else:
+        options = [
+            key for key, scenario in config.scenarios.items()
+            if scenario.taxonomy is not None
+            and all(getattr(scenario.taxonomy, d) == v for d, v in active.items())
+        ]
+    if not options:
+        if active.get("scope") == "system_wide":
+            st.warning("System-wide scenarios need several banks: not available yet. All scenarios are shown.")
+        else:
+            st.warning("No scenario matches this combination. All scenarios are shown.")
+        options = list(config.scenarios)
+    if st.session_state.get("scenario") not in options:
+        st.session_state["scenario"] = default if default in options else options[0]
+    return options
 
 
 # ------------------------------------------------- decisions
@@ -293,10 +332,11 @@ with st.sidebar:
             key="bank",
         )
     with st.container(key="ctl_scenario"):
+        scenario_options = scenario_designer(config, showcase.scenario)
+        # Its value is set in the session state by the designer, so no index is given here.
         scenario_key = st.selectbox(
             "Trigger scenario",
-            list(config.scenarios),
-            index=list(config.scenarios).index(showcase.scenario),
+            scenario_options,
             format_func=lambda k: config.scenarios[k].name,
             key="scenario",
         )
@@ -370,7 +410,8 @@ if st.session_state.get("run_signature") != signature:
 # Less empty space above the title, so the chart starts higher on a laptop screen.
 st.html("<style>.stMainBlockContainer { padding-top: 2.5rem; }</style>")
 st.title("Crisis Scenario Engine")
-st.caption(f"{bank.name} · {scenario.name}. {scenario.description} Amounts in {bank.unit}.")
+kind = f" ({scenario.taxonomy.label()})" if scenario.taxonomy else ""
+st.caption(f"{bank.name} · {scenario.name}{kind}. {scenario.description} Amounts in {bank.unit}.")
 
 demo_on = st.session_state["demo_on"]
 demo_step = st.session_state["demo_step"]
@@ -605,7 +646,7 @@ if script_tab.open:
         st.subheader("Exercise script")
         st.caption(
             "One document per actor, with only what that actor knows and when it knows it, "
-            "plus a facilitator pack with full information. Wording is a draft."
+            "plus a control team pack with full information. Wording is a draft."
         )
         other_key = st.selectbox(
             "Second branch of the script",
@@ -614,6 +655,15 @@ if script_tab.open:
             format_func=lambda k: paths[k].name,
             key="script_branch",
             help="The script covers this path and the one selected in the sidebar.",
+        )
+        mode = st.radio(
+            "Type of exercise",
+            MODES,
+            horizontal=True,
+            key="script_mode",
+            format_func=lambda m: MODE_LABELS[m],
+            help="Dynamic: the players' decisions change the course, so the script has two "
+            "branches. Linear: one fixed path; decisions are recorded but change nothing.",
         )
         ambient_on = st.checkbox(
             "Include ambient injects (press, politics, other authorities; no effect on figures)",
@@ -630,7 +680,9 @@ if script_tab.open:
             bank, config.model, scenario, config.decisions, config.script, branches,
             ambient=ambient_on,
             writedown_level=st.session_state.get("writedown_level", "central"),
+            mode=mode,
         )
+        st.caption(MODE_TEXT[mode])
         with st.container(key="ctl_export"):
             st.download_button(
                 "Download the exercise pack (.zip)",
@@ -639,7 +691,7 @@ if script_tab.open:
                 mime="application/zip",
             )
         st.caption(
-            "The zip holds five participant documents (.docx), the facilitator pack (.docx) "
+            "The zip holds five player documents (.docx), the control team pack (.docx) "
             "and the data (.csv): injects, decision points, decision log, daily tables."
         )
         actor = st.selectbox(
@@ -690,7 +742,8 @@ if script_tab.open:
                     if due is not None:
                         st.markdown(f"**Question:** {due.question}")
                         for option in due.options:
-                            st.markdown(f"- `{option.branch_code}` {option.name}")
+                            code = f"`{option.branch_code}` " if option.branch_code else ""
+                            st.markdown(f"- {code}{option.name}")
                         st.markdown(
                             f"**Decide by** the close of day {due.deadline_day}"
                             + (" (the earlier of the two branches). " if due.deadline_shared else ". ")

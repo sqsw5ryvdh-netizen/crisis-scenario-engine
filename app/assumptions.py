@@ -51,6 +51,21 @@ def scenario_table(config: Config) -> pd.DataFrame:
         for name, param, sampled in entries:
             rows.append({"Scenario": scenario.name, **_row(name, param, sampled)})
         for event in scenario.news_events:
+            if event.loan_loss_share > 0:
+                rows.append(
+                    {
+                        "Scenario": scenario.name,
+                        "Status": FLAG,
+                        "Parameter": f"loss revealed, day {event.day}",
+                        "Value": event.loan_loss_share,
+                        "Low": None,
+                        "High": None,
+                        "Unit": "share of the loan book written off",
+                        "Sampled": "no",
+                        "Source": ASSUMPTION,
+                    }
+                )
+        for event in scenario.news_events:
             # News shocks are part of the scenario design and have no source of their own.
             rows.append(
                 {

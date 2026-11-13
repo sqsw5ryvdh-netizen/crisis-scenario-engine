@@ -1,5 +1,5 @@
 """Export of the exercise pack (SPEC_V2 phase D): one Word document per actor, the
-facilitator pack and the data files, as bytes and as one zip.
+control team pack and the data files, as bytes and as one zip.
 
 Nothing here reads or writes files; the caller (CLI or app) does.
 """
@@ -15,7 +15,7 @@ from docx import Document
 from engine.decisions import OUTCOME_LABELS, actor_label, decision_log_rows, scorecard_rows
 from engine.resolution import breakpoint_text, summary_rows
 from engine.schema import WEEKDAYS, DecisionsConfig, ScriptConfig
-from engine.script import ExercisePack, Inject
+from engine.script import MODE_TEXT, ExercisePack, Inject
 
 KNOWN_LIMITS = (
     "Legal loss-absorption thresholds are not modelled: the model does not test any minimum "
@@ -73,11 +73,25 @@ def _labelled(document, label: str, text: str) -> None:
     paragraph.add_run(text)
 
 
-def _start(title: str, subtitle: str, script: ScriptConfig):
+# Every exported document says it is a simulation (EBA Handbook, par. 174): Word files in
+# the header and footer of every page and under the title, data files in their name.
+SIMULATION_LABEL = "SIMULATION"
+SIMULATION_NOTICE = "SIMULATION - exercise material, not a real event"
+
+
+def _start(title: str, subtitle: str, script: ScriptConfig, mode: str = ""):
     document = Document()
-    document.core_properties.title = title
+    document.core_properties.title = f"{SIMULATION_LABEL} - {title}"
     document.core_properties.author = "Crisis Scenario Engine"
+    for section in document.sections:
+        for part in (section.header, section.footer):
+            paragraph = part.paragraphs[0]
+            paragraph.text = SIMULATION_NOTICE
+            paragraph.runs[0].bold = True
     document.add_heading(title, level=0)
+    document.add_paragraph().add_run(SIMULATION_NOTICE).bold = True
+    if mode:
+        document.add_paragraph(MODE_TEXT[mode])
     document.add_paragraph(subtitle)
     document.add_paragraph().add_run(script.disclaimer).italic = True
     document.add_paragraph().add_run(script.draft_notice).italic = True
@@ -141,11 +155,14 @@ def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
     due = inject.decision_due
     if due is not None:
         _labelled(document, "Question", due.question)
-        _table(
-            document,
-            ["Option", "Branch code"],
-            [[option.name, option.branch_code] for option in due.options],
-        )
+        if pack.mode == "linear":
+            _table(document, ["Option"], [[option.name] for option in due.options])
+        else:
+            _table(
+                document,
+                ["Option", "Branch code"],
+                [[option.name, option.branch_code] for option in due.options],
+            )
         weekday = weekday_of(pack, due.deadline_day)
         _labelled(
             document, "Decide by",
@@ -156,7 +173,10 @@ def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
         _labelled(document, "Consult first", ", ".join(due.consult) or "nobody")
         _labelled(document, "Inform afterwards", ", ".join(due.inform) or "nobody")
         document.add_paragraph(
-            "Tell the facilitator the branch code of your choice. A decision is in effect "
+            "Tell the control team your choice. It is recorded, but the exercise is linear "
+            "and continues on its fixed path."
+            if pack.mode == "linear" else
+            "Tell the control team the branch code of your choice. A decision is in effect "
             "the day after it is taken."
         )
 
@@ -164,21 +184,23 @@ def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
 def actor_docx(pack: ExercisePack, script: ScriptConfig, actor: str) -> bytes:
     """The document handed to one actor: only what that actor knows, when it knows it."""
     document_data = next(d for d in pack.documents if d.actor == actor)
-    document = _start(f"Exercise script: {document_data.name}", pack.bank_name, script)
+    document = _start(
+        f"Exercise script: {document_data.name}", pack.bank_name, script, pack.mode
+    )
 
     document.add_heading("What you see", level=1)
     for sentence in document_data.information:
         document.add_paragraph(sentence, style="List Bullet")
     document.add_paragraph(
         "Times of day are labels. The figures you are given are the only figures you have: "
-        "other participants may hold more recent ones."
+        "other players may hold more recent ones."
     )
 
     heading = "Shared part" if document_data.branches else "Injects"
     document.add_heading(heading, level=1)
     if document_data.branches:
         document.add_paragraph(
-            "These injects are the same whichever way the exercise continues. The facilitator "
+            "These injects are the same whichever way the exercise continues. The control team "
             "tells you which branch to read afterwards."
         )
     for inject in document_data.shared:
@@ -217,13 +239,15 @@ def _timeline_rows(pack: ExercisePack, branch) -> list[list[str]]:
     return rows
 
 
-def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: DecisionsConfig) -> bytes:
+def control_team_docx(pack: ExercisePack, script: ScriptConfig, decisions: DecisionsConfig) -> bytes:
     """Full information: both branches, every decision point and where each option leads."""
     document = _start(
-        "Facilitator pack", f"{pack.bank_name} - {pack.scenario_name}", script
+        "Control team pack", f"{pack.bank_name} - {pack.scenario_name}", script, pack.mode
     )
+    if pack.taxonomy:
+        document.add_paragraph(f"Scenario type (EBA Handbook, par. 115): {pack.taxonomy}.")
     document.add_paragraph(
-        "For the facilitator only. Participants' documents show each actor's own figures, "
+        "For the control team only. Players' documents show each actor's own figures, "
         "delayed as set out below, and branch codes without outcomes."
     )
 
@@ -245,7 +269,7 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
     header = list(pack.information_rows[0])
     _table(document, header, [[row[name] for name in header] for row in pack.information_rows])
     document.add_paragraph(
-        "Delays are in whole days. Stage changes, a payments default, the FOLTF declaration "
+        "Delays are in whole days. Stage changes, a payments default, the FoLtF declaration "
         "and resolution reach every informed actor the same day; only the figures are delayed."
     )
 
@@ -253,7 +277,7 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
         document.add_page_break()
         document.add_heading(f"Branch {branch.label}: {branch.name}", level=1)
         document.add_paragraph(f"Outcome: {OUTCOME_LABELS[branch.result.outcome]}.")
-        document.add_heading("Full-information timeline", level=2)
+        document.add_heading("Simulation operational timeline (full information)", level=2)
         _table(
             document,
             [*TIMELINE_COLUMNS.values(), "Events"],
@@ -269,14 +293,14 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
             )
         if branch.result.resolution_weekend:
             document.add_paragraph(
-                "FOLTF is declared after a Friday close: the authorities have a resolution "
+                "FoLtF is declared after a Friday close: the authorities have a resolution "
                 "weekend before the bank would reopen on Monday."
             )
         if branch.resolution is not None:
             document.add_heading("Resolution summary", level=2)
             document.add_paragraph(
                 "The valuation write-down is not known: the three columns use the low, central "
-                "and high values, all assumptions. Participants' documents use the "
+                "and high values, all assumptions. Players' documents use the "
                 f"{pack.writedown_level} value. Losses fall on CET1 first, then on the layers "
                 "below in the order shown, which is the order used in this model."
             )
@@ -305,6 +329,8 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
             "For the option the branch follows, the line shows the branch itself. For any "
             "other option it shows a run in which that option is taken at the first possible "
             "close and nothing is decided afterwards."
+            + (" The exercise is linear, so these other runs are not played: they are for "
+               "the debrief." if pack.mode == "linear" else "")
         )
         _table(
             document,
@@ -371,7 +397,7 @@ def facilitator_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decisi
 
 
 def injects_frame(pack: ExercisePack) -> pd.DataFrame:
-    """Every inject of every actor on every branch (facilitator data)."""
+    """Every inject of every actor on every branch (control team data)."""
     rows = []
     for branch in pack.branches:
         for actor, injects in branch.injects.items():
@@ -438,20 +464,20 @@ def pack_files(
 ) -> dict[str, bytes]:
     """All files of the pack: path inside the zip -> content."""
     files = {
-        f"participants/{document.actor}.docx": actor_docx(pack, script, document.actor)
+        f"players/{document.actor}.docx": actor_docx(pack, script, document.actor)
         for document in pack.documents
     }
-    files["facilitator/facilitator_pack.docx"] = facilitator_docx(pack, script, decisions)
-    files["facilitator/data/injects.csv"] = _csv(injects_frame(pack))
-    files["facilitator/data/decision_points.csv"] = _csv(decision_points_frame(pack))
+    files["control_team/control_team_pack.docx"] = control_team_docx(pack, script, decisions)
+    files["control_team/data/SIMULATION_injects.csv"] = _csv(injects_frame(pack))
+    files["control_team/data/SIMULATION_decision_points.csv"] = _csv(decision_points_frame(pack))
     log_rows = [
         {"branch": branch.label, **row}
         for branch in pack.branches
         for row in decision_log_rows(branch.result.decision_log, pack.unit)
     ]
-    files["facilitator/data/decision_log.csv"] = _csv(pd.DataFrame(log_rows))
+    files["control_team/data/SIMULATION_decision_log.csv"] = _csv(pd.DataFrame(log_rows))
     for branch in pack.branches:
-        files[f"facilitator/data/daily_table_branch_{branch.label}.csv"] = _csv(branch.result.table)
+        files[f"control_team/data/SIMULATION_daily_table_branch_{branch.label}.csv"] = _csv(branch.result.table)
     resolution_rows = [
         {"branch": branch.label, "level": level, "figure": label, "value": value}
         for branch in pack.branches
@@ -460,7 +486,7 @@ def pack_files(
         for label, value in summary_rows(summary, pack.unit)
     ]
     if resolution_rows:
-        files["facilitator/data/resolution_summary.csv"] = _csv(pd.DataFrame(resolution_rows))
+        files["control_team/data/SIMULATION_resolution_summary.csv"] = _csv(pd.DataFrame(resolution_rows))
     return files
 
 

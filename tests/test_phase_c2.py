@@ -36,7 +36,7 @@ SHOWCASE = SCRIPT.showcase
 TOL = 1e-9
 APP_PATH = str(Path(__file__).resolve().parent.parent / "app" / "main.py")
 SCENARIOS = ["fast_run", "slow_burn", "cyber_outage", "geopolitical"]
-# Paths that end with a tool, on runs where the bank is declared FOLTF.
+# Paths that end with a tool, on runs where the bank is declared FoLtF.
 RESOLVED = [
     (bank, scenario, path)
     for bank in CONFIG.banks
@@ -303,7 +303,7 @@ def test_showcase_bail_in_at_the_three_write_down_levels():
 
 
 def test_resolution_summary_table_for_bail_in_against_liquidation():
-    """Acceptance: a resolution summary for two paths, from a Wednesday to a Friday FOLTF."""
+    """Acceptance: a resolution summary for two paths, from a Wednesday to a Friday FoLtF."""
     scenario = CONFIG.scenarios[SHOWCASE.scenario]
     assert scenario.start_weekday == "Wednesday" and scenario.weekday(10) == "Friday"
     bail_in = levels_for(SHOWCASE.bank, SHOWCASE.scenario, SHOWCASE.path)["central"]
@@ -311,8 +311,8 @@ def test_resolution_summary_table_for_bail_in_against_liquidation():
     assert (bail_in.tool, wind_up.tool) == ("bail_in", "liquidation")
     rows_a, rows_b = dict(summary_rows(bail_in, "EUR bn")), dict(summary_rows(wind_up, "EUR bn"))
     shared = [label for label in rows_a if label in rows_b]
-    assert {"Tool", "FOLTF in effect", "MREL requirement (EUR bn)"} <= set(shared)
-    assert "resolution weekend" in rows_a["FOLTF in effect"]
+    assert {"Tool", "FoLtF in effect", "MREL requirement (EUR bn)"} <= set(shared)
+    assert "resolution weekend" in rows_a["FoLtF in effect"]
     assert rows_a["Tool"] == "Bail-in" and rows_b["Tool"] == "Liquidation"
     assert any(label.startswith("AT1 and Tier 2: written down") for label in rows_a)
     assert any(label.startswith("Liquidation, Uncovered deposits") for label in rows_b)
@@ -396,12 +396,12 @@ def test_resolution_injects_go_only_to_their_recipients():
     assert any("DGS payout" in f.text for f in scheme[0].resolution)  # the liquidation branch
 
 
-def test_participants_documents_use_the_chosen_write_down_level():
+def test_players_documents_use_the_chosen_write_down_level():
     central, high = showcase_pack("central"), showcase_pack("high")
     assert (central.writedown_level, high.writedown_level) == ("central", "high")
     files_central = pack_files(central, SCRIPT, DECISIONS)
     files_high = pack_files(high, SCRIPT, DECISIONS)
-    name = "participants/resolution_authority.docx"
+    name = "players/resolution_authority.docx"
     assert "4% (central)" in docx_text(files_central[name])
     text = docx_text(files_high[name])
     assert "8% (high)" in text and "4% (central)" not in text
@@ -424,10 +424,10 @@ def test_resolution_period_is_clamped_to_the_run_when_foltf_is_midweek():
     assert all(result.foltf_day <= i.day <= result.end_day for i in steps)
 
 
-def test_facilitator_pack_has_the_resolution_summary_and_the_limits():
+def test_control_team_pack_has_the_resolution_summary_and_the_limits():
     pack = showcase_pack()
     files = pack_files(pack, SCRIPT, DECISIONS)
-    text = docx_text(files["facilitator/facilitator_pack.docx"])
+    text = docx_text(files["control_team/control_team_pack.docx"])
     assert text.count("Resolution summary") >= 2  # one per branch
     for word in ("Low", "Central", "High"):
         assert word in text
@@ -435,7 +435,7 @@ def test_facilitator_pack_has_the_resolution_summary_and_the_limits():
     assert "Legal loss-absorption thresholds are not modelled" in text
     assert "order of loss absorption used in this model" in text
     assert "2% (low)" in text and "4% (central)" in text and "8% (high)" in text
-    table = pd.read_csv(io.BytesIO(files["facilitator/data/resolution_summary.csv"]))
+    table = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_resolution_summary.csv"]))
     assert set(table["branch"]) == {"A", "B"} and set(table["level"]) == set(LEVELS)
     assert len(files) == 12
 
@@ -464,7 +464,7 @@ def test_app_shows_the_resolution_summary_for_both_paths():
     at.selectbox(key="reference_path").set_value(SHOWCASE.compare_path).run(timeout=60)
     assert any(h.value == "Resolution summary" for h in at.subheader)
     table = at.dataframe[1].value
-    assert list(table.columns) == ["Figure", "FOLTF on the second Friday, liquidation", "Selected path"]
+    assert list(table.columns) == ["Figure", "FoLtF on the second Friday, liquidation", "Selected path"]
     tool = table[table["Figure"] == "Tool"].iloc[0]
     assert tool["Selected path"] == "Bail-in" and tool.iloc[1] == "Liquidation"
     writedown = lambda: at.dataframe[1].value.set_index("Figure").loc[  # noqa: E731

@@ -199,7 +199,10 @@ def test_assumptions_tables_list_every_parameter():
     for scenario in CONFIG.scenarios.values():
         rows = scenarios[scenarios["Scenario"] == scenario.name]
         fade_rows = 3 if scenario.fade is not None else 0
-        assert len(rows) == 1 + len(scenario.overrides) + len(scenario.news_events) + fade_rows
+        loss_rows = sum(1 for event in scenario.news_events if event.loan_loss_share > 0)
+        assert len(rows) == (
+            1 + len(scenario.overrides) + len(scenario.news_events) + fade_rows + loss_rows
+        )
     banks = bank_table(CONFIG)
     assert set(banks["Bank"]) == {bank.name for bank in CONFIG.banks.values()}
     decisions = decision_table(CONFIG)

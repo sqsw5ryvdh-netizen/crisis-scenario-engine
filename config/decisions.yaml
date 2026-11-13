@@ -23,7 +23,7 @@ payout_days_unprepared:
   source: ASSUMPTION
 
 # What each actor knows and how late (SPEC_V2 phase D). Used for the decision log and for the
-# exercise script: a participant's document only shows figures from its own set, at their age.
+# exercise script: a player's document only shows figures from its own set, at their age.
 # - source: who the information comes from, as named in the script.
 # - lag_days: age of the figures (0 = same day, 1 = the previous day's close). Delays are in
 #   whole days until intraday views exist.
@@ -31,7 +31,7 @@ payout_days_unprepared:
 # - faster: a decision option that shortens the delay from the day it is in effect.
 # - intraday: the actor also gets the day's outflow by time block (an allocation, not a
 #   simulation).
-# Stage changes, payments default, FOLTF and resolution are notified the same day to every
+# Stage changes, payments default, FoLtF and resolution are notified the same day to every
 # actor that is already informed; only the figures are delayed. All ASSUMPTION.
 information:
   bank_management:
@@ -75,7 +75,7 @@ decisions:
         effect: none
       reassuring:
         name: Statement that reassures
-        description: The statement calms depositors. Whether it does is the facilitator's call.
+        description: The statement calms depositors. Whether it does is the control team's call.
         effect: panic_shock
         params:
           shock:
@@ -142,7 +142,7 @@ decisions:
         trigger_option: sell_portfolio
 
   declare_foltf:
-    name: Failing or likely to fail (FOLTF)
+    name: Failing or likely to fail (FoLtF)
     actor: competent_authority
     condition:
       stage: likely_to_fail
@@ -285,14 +285,14 @@ paths:
     choices:
       - {decision: ela, option: grant_full, day: 1}
   early_foltf:
-    name: Early FOLTF, bail-in
-    description: FOLTF is declared as soon as the bank is likely to fail; a two-day moratorium, then bail-in.
+    name: Early FoLtF, bail-in
+    description: FoLtF is declared as soon as the bank is likely to fail; a two-day moratorium, then bail-in.
     choices:
       - {decision: declare_foltf, option: declare, day: 1}
       - {decision: moratorium, option: two_days, day: 1}
       - {decision: resolution_tool, option: bail_in, day: 3}
   early_foltf_liquidation:
-    name: Early FOLTF, liquidation
+    name: Early FoLtF, liquidation
     description: As above, but with no public interest in resolution; the scheme pays out covered deposits.
     choices:
       - {decision: prepare_payout, option: prepare, day: 1}
@@ -308,13 +308,13 @@ paths:
       - {decision: recovery_options, option: sell_portfolio, day: 1}
       - {decision: ela, option: grant_full, day: 1}
   weekend_bail_in:
-    name: FOLTF on the second Friday, bail-in
-    description: For a run that starts on a Wednesday. FOLTF is declared after the close of the second Friday (day 10); the tool is decided on Sunday and applies on Monday.
+    name: FoLtF on the second Friday, bail-in
+    description: For a run that starts on a Wednesday. FoLtF is declared after the close of the second Friday (day 10); the tool is decided on Sunday and applies on Monday.
     choices:
       - {decision: declare_foltf, option: declare, day: 10}
       - {decision: resolution_tool, option: bail_in, day: 12}
   weekend_liquidation:
-    name: FOLTF on the second Friday, liquidation
+    name: FoLtF on the second Friday, liquidation
     description: As above, with no public interest in resolution; the scheme prepares during the week and pays out covered deposits.
     choices:
       - {decision: prepare_payout, option: prepare, day: 8}

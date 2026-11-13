@@ -44,6 +44,23 @@ Outside the guide, the app recalculates on every change. The other tabs show how
 day's outflow was funded and the spread of default days over 500 runs with uncertain
 parameters. The Assumptions page lists every parameter with its value and source.
 
+## Handbook alignment
+
+The tool uses the terms of the EBA "Handbook on simulation exercises for resolution
+authorities" (EBA/REP/2025/20, in `docs/reference/`): players, control team, design team,
+observers, injects, FoLtF. Three things follow the Handbook directly so far:
+
+- **Scenario taxonomy** (par. 115). Each scenario has a type of issue, a systemic relevance
+  and a speed. The "Scenario designer" in the sidebar filters the scenarios by them. One
+  scenario is solvency-led ("Loss revealed": a loss on the loan book cuts capital first and
+  deposits leave afterwards); the others are liquidity-led or operational. System-wide
+  scenarios are not available: only one bank is modelled.
+- **Linear or dynamic** (par. 124-126). A dynamic exercise has two branches and the players'
+  decisions choose between them. A linear exercise follows one fixed path; decisions are
+  recorded but change nothing. Every exported document says which it is.
+- **SIMULATION label** (par. 174). Every exported Word file carries it in the header and
+  footer of every page, and every data file in its name.
+
 ## Calendar
 
 Day 1 of a scenario is a weekday set in `config/scenarios.yaml` (Monday unless stated; the
@@ -57,7 +74,7 @@ this is an allocation of the daily figure with fixed shares, not a simulation of
 ## Decisions
 
 A run can follow a decision path: who decides what, and from which day. Pick a ready-made
-path in the sidebar ("Authorities act late", "ELA granted", "Early FOLTF, bail-in", ...) or
+path in the sidebar ("Authorities act late", "ELA granted", "Early FoLtF, bail-in", ...) or
 change single decisions in the panel below it. A decision is taken after the close of a day
 and is in effect the next day. The Decisions tab compares the selected path with another
 one: chart, outcome scorecard side by side, and the decision log with the figures each
@@ -78,7 +95,7 @@ and a second one. The zip contains:
   branch code, a deadline on that branch, and who to consult and inform. A shared part
   comes first, then one section per branch. Ambient injects (press, politics, other
   authorities) add pressure without changing any figure; they can be switched off.
-- **a facilitator pack** with full information: both branches day by day, every decision
+- **a control team pack** with full information: both branches day by day, every decision
   point and where each option leads, the expected coordination steps and debrief questions.
 - **data files** (.csv): all injects, decision points, the decision log and the daily tables.
 
@@ -88,7 +105,7 @@ and coordination steps are in `config/script.yaml`. All of it is a draft.
 ## Resolution
 
 When a path ends with a resolution tool or in liquidation, the tool works out what happens
-to capital and creditors at the FOLTF declaration: losses booked so far, an assumed
+to capital and creditors at the FoLtF declaration: losses booked so far, an assumed
 write-down of the loan book, the capital needed to restore the requirement, and who bears
 it from the liability stack (CET1, AT1 and Tier 2, senior non-preferred debt, senior
 preferred debt, uncovered deposits; covered deposits are protected). In liquidation it
@@ -108,7 +125,7 @@ communication before reopening and liquidity at reopening.
 
 This prints the daily table. Add `--path early_foltf` to follow a decision path,
 `--runs 500` for the uncertainty ranges and `--export-dir exports` to write the exercise
-pack (with `--compare-path` for the second branch, `--no-ambient` to leave the ambient
+pack (with `--compare-path` for the second branch, `--mode linear` for a linear exercise, `--no-ambient` to leave the ambient
 injects out, `--writedown low|central|high` for the assumed write-down). `python -m engine.run --showcase --export-dir exports` exports the showcase.
 
 ## Tests

@@ -71,7 +71,7 @@ DEMO_STEPS = (
     DemoStep(
         "Export the exercise script",
         "Download the exercise pack: one document per authority, with only what it knows and "
-        "the decisions open to it, plus a facilitator pack with full information.",
+        "the decisions open to it, plus a control team pack with full information.",
         "ctl_export",
         TAB_SCRIPT,
     ),
