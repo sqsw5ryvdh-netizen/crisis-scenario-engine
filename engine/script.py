@@ -406,6 +406,7 @@ def build_branch(
     linear: bool = False,
     challenges: Sequence[str] = (),
     hostile: bool = False,
+    with_points: bool = True,
 ) -> BranchScript:
     """Simulate one decision path and write every actor's injects for it.
 
@@ -805,7 +806,7 @@ def build_branch(
     points = []
     for key, definition in decisions.decisions.items():
         open_day = open_days[key]
-        if open_day is None:
+        if open_day is None or not with_points:  # live mode does not need the other runs
             continue
         earlier = [
             Choice(record.decision, record.option, record.decided_day)

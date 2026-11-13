@@ -12,6 +12,7 @@ st.set_page_config(page_title="Crisis Scenario Engine", layout="wide")
 page = st.navigation(
     [
         st.Page("views/simulation.py", title="Simulation", default=True),
+        st.Page("views/console.py", title="Control console", url_path="console"),
         st.Page("views/assumptions.py", title="Assumptions"),
     ]
 )

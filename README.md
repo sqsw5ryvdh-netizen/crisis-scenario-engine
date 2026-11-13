@@ -124,6 +124,17 @@ liability stack, prudential indicators, economic background), the **rules of pla
   point and where each option leads, the expected coordination steps and debrief questions.
 - **data files** (.csv): the main events list, all injects, decision points, the decision log and the daily tables.
 
+## Live exercise (control console)
+
+The "Control console" page runs an exercise live. The control team starts it, steps the
+simulated clock (next inject time, close of the day, or a jump to the next milestone) and
+records each decision when the players take it. The path is the pre-planned one until the
+players decide otherwise; the engine then recomputes it and releases the next injects to
+each recipient within its information set. The console also sends ad hoc injects (free text
+or from the library), releases what a player failed to pass on, pauses and resumes, and
+undoes the last entry. Every entry is logged with real and simulated time. Saving, reloading
+and the players' own pages are not built yet.
+
 Who sees what is set in `config/decisions.yaml` (`information`); the wording, clock times
 and coordination steps are in `config/script.yaml`. All of it is a draft.
 

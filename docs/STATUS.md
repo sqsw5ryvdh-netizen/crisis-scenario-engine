@@ -1,39 +1,31 @@
 # STATUS
 
-Last completed: **SPEC_V3 phase G - Speak the Handbook's language** (parts a, b, c; 2026-11-13). Done before: M0-M6 and SPEC_V2 phases A, B, B2, D, C1, C2. Next: phase H (live mode), to be planned first.
+Last completed: **SPEC_V3 phase H, part a - Live engine and control console** (2026-11-13). Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, SPEC_V3 phase G. Next: phase H part b (players' pages, save, reload and replay, acceptance run), after review.
 
-## What was built in G-c
-- **G7 mock bank dossier** for the players: business model, simplified balance sheet, liability stack, prudential indicators at day 0, short economic background per scenario. Neutral names: the bank is "Bank A" in "Country A" in every document of the pack.
-- **G8 session plan**: simulated days mapped to real sessions (inputs: number and hours), with breaks at the FoLtF determination and at the resolution decision, and the real minutes per simulated day.
-- **G10 drafts**: SimEx Charter on the Annex 1 template (pre-filled cells marked `[DRAFT - to edit]`, the rest blank), rules of play in the Handbook's three categories, one observer sheet per team, feedback questionnaire quoting Annex 7, blank Annex 8 checklist.
-- **Mapping table** of each output to the Handbook paragraph or annex, as a document in the pack.
-- Pack folders: `players/` (shared in advance), `observers/`, `control_team/`.
+## What was built in H-a
+- **`engine/live.py`**, pure: a live exercise is a set-up plus a log, and the state is what replaying the log gives. Every entry carries the real time given by the caller and the simulated moment it led to. The engine never reads the clock.
+- **Simulated clock** stepped by the control team: next inject time, close of the day, or a jump to the next milestone (stage change, decision opening, end).
+- **Path.** The pre-planned path, changed by what the players decide. A decision recorded during day N is taken at the close of day N. A planned decision not taken by the close of its day drops out and can still be taken later. A linear exercise keeps its path and releases a course correction when the players deviate.
+- **Release.** An inject goes to its recipient when the clock reaches it, as it stands on the path known then; injects already handed out are never rewritten. What a player should pass on is released only by the control team, or marked as passed on.
+- **Also:** ad hoc injects (free text or library), pause and resume, undo of the last entry (both stay in the log), real time taken per decision with pauses excluded, "taken by the control team" flag.
+- **Control console** page in the app: start, clock, open decisions, pending notifications, ad hoc inject, full-information state, what comes next, what each recipient has received, log.
+
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Acceptance pack: `.venv/bin/python -m engine.run --showcase --export-dir exports` (options: `--sessions`, `--session-hours`, `--mode`, `--hostile`, `--challenge`)
-## Acceptance output (phase G, showcase: retail bank, geopolitical shock, bail-in and liquidation branches)
-29 files, every one labelled SIMULATION. Session plan for 3 sessions of 3 hours: days 0-10 (16 min per day, break at the FoLtF determination), days 11-12 (90 min, break at the resolution decision), day 13 (end).
+- App: `./start.sh`, page "Control console" | Tests: `.venv/bin/pytest -q`
 
-| Output | EBA Handbook |
-|---|---|
-| players/mock_bank_dossier.docx | par. 167-168, 177; par. 174 |
-| players/rules_of_play.docx | par. 149-155, 200 |
-| players/feedback_questionnaire.docx | Annex 7; par. 216-217 |
-| observers/observer_sheet_&lt;player&gt;.docx (4) | par. 99-101 |
-| control_team/simex_charter_draft.docx | Annex 1 |
-| control_team/session_plan.docx | par. 139-143, 195-196 |
-| control_team/main_events_list.docx | par. 128, 133, 177 |
-| control_team/inject_sheets/&lt;player&gt;.docx (4, the players' documents) | par. 128-132, 191-192 |
-| control_team/role_cards/&lt;role&gt;.docx (5) | par. 132, 198-200 |
-| control_team/control_team_pack.docx | par. 139-141, 115 |
-| control_team/feedback_checklist.docx; challenge injects; linear or dynamic; SIMULATION label | Annex 8; par. 123, 129, 192; 124-127; 174 |
-- `pytest -q` -> `1323 passed`, including "no document without the SIMULATION label" in both exercise types, "every output is mapped to the Handbook" and "what players get in advance gives nothing away".
+## Output (H-a; the phase H acceptance run comes with part b)
+Showcase entered live as planned: 42 log entries, 13 simulated days, outcome bail-in, and every recipient gets exactly the injects of the pre-planned branch. With liquidation chosen at the close of day 12 instead: outcome liquidation, earlier injects unchanged. With FoLtF not declared on day 10: no declaration on the path from day 11; declared on day 11, in effect day 12.
+- `pytest -q` -> `1345 passed`, including: nothing is released before its time; a recipient only gets its own injects and figures; replaying the log gives the same exercise; undo restores the previous state exactly.
 
 ## Deviations and choices
-- The mapping is this project's reading of the Handbook. Annex texts were taken from the PDF in docs/reference/, not from memory; Annex 1 was checked against the page image.
-- The dossier gives every player the bank's opening figures, including authorities that receive nothing during the exercise before their stage.
-- Session defaults (3 sessions of 3 hours) are ASSUMPTION inputs in `config/script.yaml`. With fewer than 3 sessions one break is dropped; without FoLtF all breaks are planned pauses.
-- CLI and app use the neutral bank name in documents; the app's screens keep the archetype name.
+- "Recomputes the path from that point" is done by re-running the whole deterministic simulation with the decisions so far: the past is identical by construction.
+- Until the players decide, the path assumes the planned decisions still ahead. Without this the resolution-period injects (valuation, loss allocation) could not exist before the tool is chosen.
+- If the players choose another tool than planned, the loss allocation they already received is the planned tool's and is not re-sent. The control team can send an ad hoc inject.
+- Recording the option that means "no decision yet" is logged and timed but leaves the decision open.
+- A library inject with resolution figures can be sent ad hoc only once FoLtF is in effect; the rating downgrade cannot be sent ad hoc because it changes the run.
+- The console keeps the exercise in the browser session: closing the tab loses it until part b adds saving.
 
 ## Open questions
-- Should the resolution authority relay to the deposit guarantee scheme instead of the competent authority (from G-b)?
-- All wording (injects, role cards, rules of play, charter drafts) needs a practitioner's review. Screenshots in docs/screenshots/ are out of date.
+- Replay needs the same config files as the original run; should a saved exercise carry a copy of the config (part b)?
+- Should the console show a real-time countdown per session from the session plan?
+- From phase G: who relays to the deposit guarantee scheme; wording needs a practitioner's review; screenshots are out of date.
