@@ -291,7 +291,7 @@ def test_cli_and_app_offer_the_exercise_type(tmp_path, capsys):
         main(["--showcase", "--mode", "improvised"])
     at = AppTest.from_file(APP_PATH)
     at.session_state["demo_on"] = False
-    at.session_state["view"] = demo.TAB_SCRIPT
+    at.switch_page("views/prepare.py")
     at.run(timeout=60)
     assert not at.exception
     assert at.radio(key="script_mode").value == "dynamic"

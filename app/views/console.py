@@ -12,11 +12,11 @@ import pandas as pd
 import streamlit as st
 
 from app import store
+from app.access import require_control_team
 from engine import live
 from engine.config import load_config
 from engine.decisions import OUTCOME_LABELS, choices_of
-from engine.export import TIMELINE_COLUMNS, report_to_zip
-from engine.report import live_report
+from engine.export import TIMELINE_COLUMNS
 from engine.schema import ACTORS, PLAYERS
 from engine.script import MODE_LABELS, MODE_TEXT, MODES
 
@@ -124,6 +124,7 @@ def show_inject(inject, caption: str = "") -> None:
                     st.markdown(f"- {figure.text}")
 
 
+require_control_team(script, "Deliver: control console")
 st.title("Control console")
 st.caption(
     "SIMULATION - exercise material, not a real event. For the control team: run a live "
@@ -184,19 +185,24 @@ started = datetime.fromisoformat(state.entries[0].real_time)
 
 st.subheader(f"{setup.name}: {setup.bank.name}, {setup.scenario.name}")
 st.caption(MODE_TEXT[setup.mode])
-metrics = st.columns([2.2, 1, 1.3, 1.5, 1.3])
-metrics[0].metric("Simulated time", when(state.day, state.time, weekday))
-metrics[1].metric("Status", status)
-metrics[2].metric("Stage of the bank", str(row["status"]).replace("_", " ").replace("failed", "payments default"))
-metrics[3].metric("Injects released to players",
-                  sum(1 for r in state.released if r.inject.recipient in PLAYERS))
-metrics[4].metric("Started (real time)", started.strftime("%H:%M:%S"))
+# Plain text, not st.metric: a metric cuts a long value short.
+facts = (
+    ("Simulated time", when(state.day, state.time, weekday)),
+    ("Status", status),
+    ("Stage of the bank", str(row["status"]).replace("_", " ").replace("failed", "payments default")),
+    ("Injects released to players",
+     str(sum(1 for r in state.released if r.inject.recipient in PLAYERS))),
+    ("Started (real time)", started.strftime("%H:%M:%S")),
+)
+for column, (label, value) in zip(st.columns([2.2, 1, 1.4, 1.5, 1.3]), facts):
+    column.caption(label)
+    column.markdown(f"#### {value}")
 
-buttons = st.columns(5)
+buttons = st.columns([1.1, 1.9, 1, 1.6, 1.6])
 buttons[0].button("Next step", type="primary", on_click=act, args=("step",), key="live_step",
                   disabled=state.ended or state.paused,
                   help="Move the simulated clock to the next inject time or to the close of the day.")
-buttons[1].button("Jump to the next milestone", on_click=act, args=("jump",), key="live_jump",
+buttons[1].button("Jump to next milestone", on_click=act, args=("jump",), key="live_jump",
                   disabled=state.ended or state.paused,
                   help="Next stage change or decision opening. Injects on the way are released together.")
 if state.paused:
@@ -228,15 +234,7 @@ with st.expander("Players' pages and saving"):
         f"Saved after every entry as `{store.path_of(exercise_id).name}` in the folder "
         f"`exercises/`. Control team's code, to reload it: `{codes[store.CONTROL]}`"
     )
-    st.download_button(
-        "Download the draft closing report (.zip)",
-        data=report_to_zip(live_report(st.session_state["live"], context), script),
-        file_name=f"SIMULATION_closing_report_{exercise_id}.zip", mime="application/zip",
-        key="live_download_report",
-        help="Decisions with their timing and the figures each player held, coordination "
-        "steps recorded, and what the model gives with one decision changed. Lessons and "
-        "recommendations are left blank for you. Can be drawn up at any time.",
-    )
+    st.caption("The draft closing report of this exercise is on the Close page, at any time.")
     left, right = st.columns(2)
     left.download_button(
         "Download the log (.csv)",
@@ -257,26 +255,27 @@ if not opened:
 for inject in opened:
     due = inject.decision_due
     definition = decisions.decisions[due.decision]
-    columns = st.columns([3, 2, 2, 2, 1])
     played = "" if definition.actor in PLAYERS else " (played by the control team)"
-    columns[0].markdown(
-        f"**{script.actors[definition.actor]}{played}**: {due.name}  \n"
+    st.markdown(
+        f"**{script.actors[definition.actor]}{played}**: {due.name}. "
         f"Open since day {inject.day}; decide by the close of day {due.deadline_day}."
     )
-    columns[1].selectbox(
+    columns = st.columns([3.2, 3.2, 1.8, 1], vertical_alignment="center")
+    columns[0].selectbox(
         "Option", list(definition.options), key=f"live_option_{due.decision}",
         format_func=lambda k, d=definition: d.options[k].name, label_visibility="collapsed",
     )
-    columns[2].multiselect(
+    columns[1].multiselect(
         "Consulted first", [a for a in ACTORS if a != definition.actor],
         key=f"live_consulted_{due.decision}", format_func=lambda k: script.actors[k],
         placeholder="Consulted first", label_visibility="collapsed",
         help="Whom the deciding team consulted before deciding, as you observed it. The "
         f"script expects: {', '.join(due.consult) or 'nobody'}.",
     )
-    columns[3].checkbox("Taken by the control team", key=f"live_by_control_{due.decision}",
-                        help="Tick when the players could not decide and the control team did.")
-    columns[4].button("Record", on_click=record_decision, args=(due.decision,),
+    columns[2].checkbox("By the control team", key=f"live_by_control_{due.decision}",
+                        help="Tick when the players could not decide and the control team "
+                        "took the decision for them.")
+    columns[3].button("Record", on_click=record_decision, args=(due.decision,),
                       key=f"live_record_{due.decision}", disabled=state.paused or state.ended)
 st.caption(
     "A decision recorded now is taken at the close of this simulated day and is in effect "
@@ -290,14 +289,14 @@ if setup.mode == "dynamic":
         st.caption("Nothing is waiting.")
     for inject in pending:
         key = live.inject_key(inject)
-        columns = st.columns([5, 2, 2])
+        columns = st.columns([4, 2, 2.4], vertical_alignment="center")
         columns[0].markdown(
             f"**{inject.sender} -> {script.actors[inject.recipient]}**: {inject.title} "
             f"({when(inject.day, inject.time)})"
         )
-        columns[1].button("Passed on by the player", on_click=act, args=("relay_done",),
+        columns[1].button("Passed on by player", on_click=act, args=("relay_done",),
                           kwargs={"key": key}, key=f"live_done_{key}", disabled=state.paused)
-        columns[2].button("Release the fallback inject", on_click=act, args=("fallback",),
+        columns[2].button("Release fallback inject", on_click=act, args=("fallback",),
                           kwargs={"key": key}, key=f"live_fallback_{key}", disabled=state.paused)
 
 with st.expander("Send an ad hoc inject"):

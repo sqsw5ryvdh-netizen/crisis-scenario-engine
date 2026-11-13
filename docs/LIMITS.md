@@ -30,7 +30,7 @@ A generator of the quantitative script of a bank crisis for a simulation exercis
 - **Information challenges are fixed patterns**: a press conference, an incomplete notification, a notification to the wrong player. Leaks and misinformation are not generated.
 
 ## Live mode and closing report
-- **No accounts and no security.** Link codes prevent mistakes only; the control console is open to anyone who can reach the app; saved exercises are plain files.
+- **No accounts and no security.** Link codes and the control team's code prevent mistakes only; the control team's code is in the config file; saved exercises are plain files.
 - **Local use.** One machine or a local network; pages refresh by polling, a few seconds behind.
 - **Decisions take effect the next simulated day.** The path assumes the planned decisions until their day has passed. Injects already delivered are not rewritten when the path changes.
 - **The report records, it does not assess.** "Not recorded as done" means no record. Counterfactuals change one decision, use the central parameters and inherit every limit above.

@@ -368,7 +368,7 @@ def test_cli_exports_the_complete_pack_with_session_inputs(tmp_path, capsys):
 def test_app_takes_the_session_inputs():
     at = AppTest.from_file(APP_PATH)
     at.session_state["demo_on"] = False
-    at.session_state["view"] = demo.TAB_SCRIPT
+    at.switch_page("views/prepare.py")
     at.run(timeout=90)
     assert not at.exception
     assert at.number_input(key="script_sessions").value == int(SETUP.sessions.value)

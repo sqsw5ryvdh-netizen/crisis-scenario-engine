@@ -38,11 +38,14 @@ Exit demo leaves the guide.
 5. **Change a decision.** In the sidebar, pick another decision path, for example
    "Authorities act late": the bank is then still open after 30 days, under stress, with no
    liquidity buffer. The Decisions tab compares the two paths.
-6. **Export the exercise script.** Download the exercise pack as one zip.
+6. **Export the exercise script.** Open the Prepare page and download the exercise pack
+   as one zip.
 
 Outside the guide, the app recalculates on every change. The other tabs show how each
 day's outflow was funded and the spread of default days over 500 runs with uncertain
-parameters. The Assumptions page lists every parameter with its value and source.
+parameters. The Assumptions and limits page lists every parameter with its value and
+source. On the timeline, a label explains each day on which the liquidity buffer rises,
+for example when collateral mobilised at the central bank becomes usable.
 
 ## Handbook alignment
 
@@ -83,9 +86,22 @@ actor had when it decided. Decisions and their effects are defined in
 
 What the tool does not cover is listed on one page in `docs/LIMITS.md`.
 
+## Pages of the app
+
+The pages follow the phases of the EBA Handbook on simulation exercises:
+
+- **Design**: bank, scenario designer, decision path, timeline, branch comparison and
+  sensitivity. The parameter sliders are under "Advanced" in the sidebar.
+- **Prepare**: the exercise pack, the challenge injects and the session plan, for the design
+  set on the Design page.
+- **Deliver**: the control console of a live exercise, with the links to the players' pages.
+- **Close**: the draft closing report.
+- **Assumptions and limits**: every parameter with its source, and what the tool does not
+  cover.
+
 ## Exercise script
 
-The Exercise script tab builds a pack for two branches: the path selected in the sidebar
+The Prepare page builds a pack for two branches: the path selected on the Design page
 and a second one. The players are the four authorities (competent authority, resolution
 authority, central bank, deposit guarantee scheme). Bank management and the other
 stakeholders are played by the control team. In the documents the bank is called "Bank A",
@@ -119,7 +135,7 @@ liability stack, prudential indicators, economic background), the **rules of pla
 - **challenge injects**, switched on or off: an interested buyer, a second and worse
   valuation, and under hostile assumptions all buyers withdrawing and a challenge from
   creditors, with the liquidity need at reopening raised by an assumed share. None of
-  these changes the run. Two market shocks (sidebar, off by default) do: a rating
+  these changes the run. Two market shocks (Prepare page, off by default) do: a rating
   downgrade and a fall in share and bond prices, each a news shock with a cut in wholesale
   roll-over. Three more, also off by default, change who knows what and not the figures:
   bank executives address the media, and the bank's notification arrives incomplete or
@@ -131,7 +147,9 @@ liability stack, prudential indicators, economic background), the **rules of pla
 
 ## Live exercise (control console)
 
-The "Control console" page runs an exercise live. The control team starts it, steps the
+The Deliver page (the control console) runs an exercise live. It asks for the control
+team's code first (`console_code` in `config/script.yaml`, or the environment variable
+`CRISIS_CONSOLE_CODE`); the code keeps players out by mistake and is not security. The control team starts it, steps the
 simulated clock (next inject time, close of the day, or a jump to the next milestone) and
 records each decision when the players take it. The path is the pre-planned one until the
 players decide otherwise; the engine then recomputes it and releases the next injects to
@@ -152,7 +170,7 @@ its log.
 
 ## Closing report
 
-After a live exercise, or at any point during it, the console gives a draft closing report
+After a live exercise, or at any point during it, the Close page gives a draft closing report
 (Word document and data). It holds the timeline of decisions with the figures the deciding
 player held and the real time taken, the coordination steps recorded as done or not recorded,
 and what the model gives with one decision changed: another option, or the same option one

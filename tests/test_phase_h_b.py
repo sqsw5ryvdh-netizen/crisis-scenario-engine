@@ -205,6 +205,7 @@ def test_player_page_refuses_a_wrong_code_or_another_teams_code(run):
 
 def test_console_saves_reloads_and_replays():
     at = AppTest.from_file(APP_PATH)
+    at.session_state["control_unlocked"] = True
     at.switch_page("views/console.py").run(timeout=60)
     at.button(key="live_start").click().run(timeout=60)
     at.button(key="live_jump").click().run(timeout=60)

@@ -1,37 +1,36 @@
 # STATUS
 
-Last completed: **Checkpoint before phase E** (2026-11-13): screenshots, Annex 3 challenge injects, `docs/LIMITS.md`. Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, SPEC_V3 phases G, H and I (the must-have phases). Next: phase E (reverse mode and design by objective), planned, waiting for approval.
+Last completed: **Product-shape pass** (2026-11-13): navigation by the Handbook's phases, console labels, explanation of buffer rises, screenshots. No model feature was added. Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, SPEC_V3 phases G, H and I, and the checkpoint (Annex 3 challenge injects, `docs/LIMITS.md`). Next: phase E, planned in `docs/plans/PLAN_E.md`, waiting for review.
 
-## What was done in the checkpoint
-- **Screenshots** in `docs/screenshots/`, seven, replacing the four old ones: simulation page (showcase), scenario designer, branch comparison, resolution summary, control console mid-exercise, a player page, first page of the closing report.
-- **Challenge injects after Annex 3 of the Handbook**, all off by default:
-  - (a) rating downgrade and (b) fall in share and bond prices: a news event with a panic shock and a cut in wholesale roll-over, each set in `config/model.yaml` (ASSUMPTION). A news event can now carry a `rollover_cut`.
-  - (c) bank executives address the media without telling the authorities: reaches every player, including those not yet informed about the bank.
-  - (d) the bank's notification arrives incomplete (the competent authority gets only the first figure) or at the wrong player (the central bank gets it; the competent authority's copy becomes a fallback inject).
-  - (c) and (d) change who knows what and leave the daily table identical.
-- **`docs/LIMITS.md`**, one page: what the model, the resolution block, the script, the live mode and the report do not cover, and the Annex 2 areas outside the tool.
-- Console: the simulated clock is no longer cut off.
+## What was done
+- **Navigation follows the Handbook's phases.**
+  - Design: bank, scenario designer, decision path, timeline, branch comparison, sensitivity. Parameter sliders and the random seed are under "Advanced: parameters".
+  - Prepare: exercise pack, challenge injects (including the two market shocks), session plan. It uses the design set on the Design page, or the showcase if none was set.
+  - Deliver: the control console and the links to the players' pages.
+  - Close: the draft closing report of the exercise open on Deliver, or of a reloaded one.
+  - Assumptions and limits: the parameters, and `docs/LIMITS.md` in a second tab.
+- **Control team's code** in front of Deliver and Close: `console_code` in `config/script.yaml`, or the environment variable `CRISIS_CONSOLE_CODE`.
+- **Console labels**: no truncated label or button; the five headline values are plain text instead of metrics; each decision has its text on one line and its controls below.
+- **Why the buffer rises**: a label on the timeline and a line under it, from `engine.model.buffer_rises`. In the showcase, day 4: "+4.21: collateral mobilised at the central bank becomes usable".
+- **Answers applied**: the three information challenges are off by default and part of the hostile assumptions; counterfactuals stay on central parameters; the competent authority keeps relaying to the deposit guarantee scheme.
+- **Screenshots** refreshed: eight, in `docs/screenshots/`.
+- **Phase plans** now go to `docs/plans/PLAN_<phase>.md` and are pushed before coding.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Market shocks: sidebar of the Simulation page, or `--challenge market_prices_fall` | Information challenges: Exercise script tab, "Challenge injects"
+- App: `./start.sh` (control team's code: see `config/script.yaml`) | Tests: `.venv/bin/pytest -q`
 
-## Output (showcase: retail bank, geopolitical shock)
-| Challenge | Stages (recovery / early intervention / likely to fail) | Deposits lost, bail-in path | Outcome |
-|---|---|---|---|
-| none | day 2 / 6 / 6 | 32.7% | bail-in, day 13 |
-| rating downgrade (day 7) | day 2 / 6 / 6 | 33.8% | bail-in, day 13 |
-| share and bond prices fall (day 3) | day 2 / 3 / 3 | 35.8% | bail-in, day 13 |
-| both | day 2 / 3 / 3 | 36.0% | bail-in, day 13 |
-
-- `pytest -q` -> `1383 passed`, including the balance sheet identity and "higher severity never defaults later" with the market shocks on, and "information challenges change no figure of the run".
+## Output
+- Every rise of the liquidity buffer over all banks, scenarios and decision paths (165 cases) is attributed to one of three causes: central bank collateral becoming usable, ELA becoming available, proceeds of a portfolio sale.
+- Hostile assumptions on the showcase now add the press conference to the buyers' withdrawal and the creditors' challenge, and make the bank's "likely to fail" notification incomplete. The misdirected notification falls on the same day and is not played.
+- `pytest -q` -> `1384 passed`, including "pages follow the phases of the Handbook", "control team's pages ask for the code" and "timeline explains why the liquidity buffer rises".
 
 ## Deviations and choices
-- In the showcase the roll-over cut has no effect: the geopolitical scenario already closes wholesale funding. A test shows it raises wholesale outflows in other scenarios.
-- The fall in prices is strong in the showcase: it brings the "likely to fail" warning forward by three days. The size is an assumption in `config/model.yaml`.
-- The roll-over cut is not in the projected outflows behind the "likely to fail" warning.
-- If an incomplete and a misdirected notification fall on the same day, only the first listed in the config is played.
-- The closing-report screenshot is the first page as rendered by macOS Quick Look, not by Word.
+- The Deliver page keeps the address `/console`.
+- The guided demo's last step sends the user to the Prepare page instead of opening a tab.
+- The tab "Uncertainty" keeps its name until phase E-a renames it "Sensitivity ranges".
+- The control team's code is a deterrent, stored in clear in the config; it is not security.
+- A market shock switched on in Prepare changes the run shown in Design; Design says so.
 
 ## Open questions
-- Should (c) and (d) be part of the hostile assumptions by default?
-- From earlier phases: who relays to the deposit guarantee scheme; console behind a code; counterfactual ranges; wording needs a practitioner's review.
+- Should Design also show a short summary of what Prepare will build (branches, challenge injects)?
+- Wording still needs a practitioner's review.

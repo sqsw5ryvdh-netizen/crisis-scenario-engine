@@ -358,6 +358,7 @@ challenges:
     offset_days: 1
     time: "17:00"
     public: true
+    hostile: true
     text: >-
       At a press conference called at short notice, the chief executive of {bank_name} says
       that the bank has breached an internal liquidity limit, that the situation is under
@@ -377,6 +378,7 @@ challenges:
     offset_days: 0
     time: "18:30"
     effect: incomplete
+    hostile: true
     text: >-
       The message from the bank is incomplete. Part of the figures behind the notification is
       missing, and the bank's contact cannot be reached for the moment.
@@ -392,6 +394,7 @@ challenges:
     offset_days: 0
     time: "18:30"
     effect: misdirected
+    hostile: true
     text: >-
       This notification from the bank was addressed to the competent authority and has
       reached you instead. The competent authority has not received it.
@@ -477,6 +480,10 @@ setup:
   # institution or country (EBA Handbook, par. 174).
   bank_alias: Bank A
   country_alias: Country A
+  # Code asked by the Deliver and Close pages of the app. A deterrent against opening the
+  # control team's pages by mistake, not security: change it before an exercise, or set the
+  # environment variable CRISIS_CONSOLE_CODE, which takes precedence.
+  console_code: control
   # Session plan: default number and length of the real sessions. Inputs of the design team.
   sessions:
     value: 3

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -68,8 +68,12 @@ def build_timeline(
     until_day: Optional[int] = None,
     start_weekday: Optional[str] = None,
     weekends: bool = True,
+    rises: Optional[Sequence[tuple[int, float, str]]] = None,
 ) -> go.Figure:
     """Liquidity buffer, deposits and CET1 ratio by day, with trigger and news markers.
+
+    `rises` (optional, from engine.model.buffer_rises) labels the days on which the liquidity
+    buffer goes up with the reason.
 
     `bands` (optional, from engine.montecarlo.bands) adds a shaded uncertainty band per panel.
     `start_weekday` (optional) labels the day axis with weekdays and shades the weekends.
@@ -148,6 +152,26 @@ def build_timeline(
             ),
             row=1,
             col=1,
+        )
+
+    buffer_at = table.set_index("day")["liquidity_buffer"]
+    for day, rise, reason in rises or ():
+        if day > until_day:
+            continue
+        fig.add_annotation(
+            x=day,
+            y=float(buffer_at[day]),
+            xref="x",
+            yref="y",
+            text=f"+{rise:.2f}: {reason}",
+            showarrow=True,
+            arrowhead=2,
+            arrowwidth=1,
+            ax=48,
+            ay=34,
+            xanchor="left",
+            font=dict(size=11),
+            bgcolor="rgba(255, 255, 255, 0.85)",
         )
 
     for event in events:

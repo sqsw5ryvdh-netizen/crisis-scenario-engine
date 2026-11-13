@@ -212,6 +212,9 @@ class SimulationResult:
     flag_cleared_day: Optional[int] = None
     # FoLtF is in effect on a Saturday: it was declared after the Friday close.
     resolution_weekend: bool = False
+    # First day on which ordinary central bank funding, and ELA, are usable (None: never).
+    central_bank_from: Optional[int] = None
+    ela_from: Optional[int] = None
 
     @cached_property
     def table(self) -> pd.DataFrame:
@@ -1264,4 +1267,32 @@ def simulate(
         resolution_weekend=foltf_day is not None
         and calendar
         and scenario.weekday(foltf_day) == "Saturday",
+        central_bank_from=central_bank_from,
+        ela_from=ela_from,
     )
+
+
+def buffer_rises(result: SimulationResult) -> tuple[tuple[int, float, str], ...]:
+    """Days on which the liquidity buffer rises, with the amount and the reason.
+
+    The buffer counts central bank capacity once the collateral is mobilised, and ELA once it
+    is granted, so it can jump up in the middle of a run. This only explains the figures of a
+    run; it changes nothing.
+    """
+    table = result.table.set_index("day")
+    out = []
+    for day in table.index[1:]:
+        rise = float(table.loc[day, "liquidity_buffer"] - table.loc[day - 1, "liquidity_buffer"])
+        if rise <= 1e-6:
+            continue
+        reasons = []
+        if result.central_bank_from == day:
+            reasons.append("collateral mobilised at the central bank becomes usable")
+        if result.ela_from == day:
+            reasons.append("emergency liquidity assistance becomes available")
+        if table.loc[day, "portfolio_sale"] > 0:
+            reasons.append("proceeds of a portfolio sale arrive")
+        if not reasons and result.ela_from is not None and day > result.ela_from:
+            reasons.append("more emergency liquidity assistance becomes usable")
+        out.append((int(day), rise, "; ".join(reasons) or "the mix of liquid assets changes"))
+    return tuple(out)

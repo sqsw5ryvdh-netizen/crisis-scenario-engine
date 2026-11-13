@@ -267,6 +267,7 @@ def test_cli_writes_the_report(tmp_path, capsys):
 
 def test_console_offers_the_report_and_the_consulted_field():
     at = AppTest.from_file(APP_PATH)
+    at.session_state["control_unlocked"] = True
     at.switch_page("views/console.py").run(timeout=60)
     at.button(key="live_start").click().run(timeout=60)
     for _ in range(40):

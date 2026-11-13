@@ -8,6 +8,7 @@ from app import demo
 from app.charts import TRIGGERS, build_timeline
 from engine.montecarlo import bands, run_monte_carlo
 from engine.config import load_config
+from engine.decisions import choices_of
 from engine.model import simulate, uninsured_share, with_uninsured_share
 
 CONFIG = load_config()
@@ -132,7 +133,9 @@ def test_app_has_selectors_sliders_tabs_and_timeline():
     ]
     assert len(labels) == 6 + len(CONFIG.decisions.decisions)  # one option box per decision
     assert len(at.sidebar.slider) == 6
-    assert [n.label for n in at.number_input] == ["Random seed"]
+    assert [n.label for n in at.number_input] == ["Random seed of the sensitivity runs"]
+    # The parameter sliders sit under "Advanced"; the pages follow the Handbook's phases.
+    assert any(e.label == "Advanced: parameters" for e in at.sidebar.expander)
     assert [metric.label for metric in at.metric][:2] == ["Payments default", "Likely-to-fail flag"]
     assert [tab.label for tab in at.tabs] == demo.TABS
     assert at.slider(key="day").value == 2  # whole run shown: payments default on day 2
@@ -144,7 +147,6 @@ def test_app_has_selectors_sliders_tabs_and_timeline():
         (demo.TAB_FUNDING, lambda at: len(at.dataframe) == 1),
         (demo.TAB_UNCERTAINTY, lambda at: any(
             h.value == "Payments default day distribution" for h in at.subheader)),
-        (demo.TAB_SCRIPT, lambda at: len(at.expander) >= 2 and len(at.get("download_button")) == 1),
     ],
 )
 def test_each_tab_shows_its_content(tab, check):
@@ -200,7 +202,59 @@ def test_assumptions_page_opens_from_the_navigation():
     at = open_app()
     at.switch_page("views/assumptions.py").run(timeout=30)
     assert not at.exception
-    assert at.title[0].value == "Assumptions"
+    assert at.title[0].value == "Assumptions and limits"
+    assert [tab.label for tab in at.tabs] == ["Assumptions", "Limits"]
+    assert any("Annex 2" in m.value for m in at.markdown)
+
+
+def test_pages_follow_the_phases_of_the_handbook():
+    """Design, Prepare, Deliver, Close: each page opens; Prepare uses the design set in Design."""
+    at = open_app(bank="universal", scenario="slow_burn", path="act_late")
+    at.switch_page("views/prepare.py").run(timeout=60)
+    assert not at.exception and at.title[0].value == "Prepare"
+    assert any("Large universal bank, Slow burn" in c.value for c in at.caption)
+    assert len(at.get("download_button")) == 1
+    # Back on Design the choices are still there.
+    at.switch_page("views/design.py").run(timeout=60)
+    assert not at.exception
+    assert at.selectbox(key="bank").value == "universal"
+    assert at.selectbox(key="scenario").value == "slow_burn"
+    # Opened first, Prepare falls back on the showcase.
+    fresh = AppTest.from_file(APP_PATH)
+    fresh.switch_page("views/prepare.py").run(timeout=60)
+    assert not fresh.exception
+    assert any(CONFIG.banks[SHOWCASE.bank].name in c.value for c in fresh.caption)
+
+
+def test_control_teams_pages_ask_for_the_code():
+    for page, title in (("views/console.py", "Deliver: control console"),
+                        ("views/close.py", "Close: closing report")):
+        at = AppTest.from_file(APP_PATH)
+        at.switch_page(page).run(timeout=60)
+        assert not at.exception and at.title[0].value == title
+        assert not [b for b in at.button if b.key == "live_start"]
+        at.text_input(key="control_code_input").set_value("guess").run(timeout=60)
+        at.button(key="control_code_open").click().run(timeout=60)
+        assert len(at.error) == 1 and at.title[0].value == title
+        at.text_input(key="control_code_input").set_value(CONFIG.script.setup.console_code).run(timeout=60)
+        at.button(key="control_code_open").click().run(timeout=60)
+        assert not at.exception and at.title[0].value != title
+
+
+def test_timeline_explains_why_the_liquidity_buffer_rises():
+    from engine.model import buffer_rises
+    at = open_app(bank=None)
+    showcase = simulate(CONFIG.banks[SHOWCASE.bank], CONFIG.model,
+                        CONFIG.scenarios[SHOWCASE.scenario], CONFIG.decisions,
+                        choices_of(CONFIG.decisions.paths[SHOWCASE.path]))
+    rises = buffer_rises(showcase)
+    assert [(day, reason) for day, _, reason in rises] == [
+        (4, "collateral mobilised at the central bank becomes usable")]
+    table = showcase.table.set_index("day")["liquidity_buffer"]
+    assert rises[0][1] == pytest.approx(table[4] - table[3]) and showcase.central_bank_from == 4
+    assert any(c.value.startswith("Why the liquidity buffer rises on day 4") for c in at.caption)
+    figure = build_timeline(showcase, 30, "EUR bn", rises=rises)
+    assert any("collateral mobilised" in a.text for a in figure.layout.annotations)
 
 
 # ------------------------------------------------- day-by-day view
@@ -268,7 +322,7 @@ def test_demo_steps_follow_the_story_and_name_existing_tabs():
         "Pick", "Pick", "Press", "Watch", "Change", "Export",
     ]
     assert all(step.tab is None or step.tab in demo.TABS for step in demo.DEMO_STEPS)
-    assert demo.DEMO_STEPS[-1].tab == demo.TAB_SCRIPT
+    assert demo.DEMO_STEPS[-1].tab is None and "Prepare" in demo.DEMO_STEPS[-1].instruction
     assert demo.DEMO_STEPS[4].tab == demo.TAB_DECISIONS
     assert ".st-key-ctl_bank" in demo.highlight_css("ctl_bank")
 
@@ -314,9 +368,12 @@ def test_full_demo_walk_forward_and_back(monkeypatch):
 
     at.button(key="demo_next").click().run(timeout=60)
     assert "step 6 of 6: Export" in _panel_title(at)
-    assert at.session_state["view"] == demo.TAB_SCRIPT
-    assert len(at.get("download_button")) == 1
     assert at.button(key="demo_next").disabled
+    # The last step sends the user to the Prepare page, where the pack is downloaded.
+    at.switch_page("views/prepare.py").run(timeout=60)
+    assert not at.exception and len(at.get("download_button")) == 1
+    assert any("Guided demo, last step" in i.value for i in at.info)
+    at.switch_page("views/design.py").run(timeout=60)
 
     at.button(key="demo_back").click().run(timeout=60)
     assert "step 5 of 6" in _panel_title(at)

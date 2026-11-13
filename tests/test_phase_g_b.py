@@ -258,7 +258,8 @@ def test_inject_sheets_are_one_per_page_and_hold_no_control_team_notes(dynamic, 
 def test_default_challenges_and_the_hostile_ones():
     assert active_challenges(SCRIPT) == ("buyer_interest", "second_valuation")
     assert active_challenges(SCRIPT, hostile=True) == (
-        "buyer_interest", "second_valuation", "buyers_withdraw", "creditor_challenge")
+        "buyer_interest", "second_valuation", "buyers_withdraw", "creditor_challenge",
+        "executives_press_conference", "incomplete_notification", "misdirected_notification")
     assert active_challenges(SCRIPT, ["rating_downgrade"]) == ("rating_downgrade",)
     assert active_challenges(SCRIPT, []) == ()
     with pytest.raises(ValueError):
@@ -490,7 +491,7 @@ def test_cli_takes_hostile_assumptions_and_challenge_injects(tmp_path, capsys):
 def test_app_offers_assumptions_challenges_and_the_main_events_list():
     at = AppTest.from_file(APP_PATH)
     at.session_state["demo_on"] = False
-    at.session_state["view"] = demo.TAB_SCRIPT
+    at.switch_page("views/prepare.py")
     at.run(timeout=90)
     assert not at.exception
     assert at.radio(key="script_assumptions").value == "Friendly"

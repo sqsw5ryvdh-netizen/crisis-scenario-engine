@@ -633,14 +633,17 @@ def test_cli_exports_the_pack(tmp_path, capsys):
 def test_app_script_tab_previews_one_actor_and_offers_one_download():
     at = AppTest.from_file(APP_PATH)
     for key, value in dict(
-        demo_on=False, view=demo.TAB_SCRIPT, bank="universal", scenario="fast_run",
+        demo_on=False, bank="universal", scenario="fast_run",
         decision_path="act_late", script_branch="act_late",
     ).items():
         at.session_state[key] = value
-    at.run(timeout=60)
+    at.run(timeout=60)  # the Design page sets the design
+    at.switch_page("views/prepare.py").run(timeout=60)
     assert not at.exception
     assert len(at.info) == 1  # both branches are "authorities act late": a single branch
+    at.switch_page("views/design.py").run(timeout=60)
     at.selectbox(key="decision_path").set_value("early_foltf").run(timeout=60)
+    at.switch_page("views/prepare.py").run(timeout=60)
     assert not at.exception and len(at.info) == 0
     assert len(at.get("download_button")) == 1
     at.selectbox(key="script_actor").set_value("resolution_authority").run(timeout=60)

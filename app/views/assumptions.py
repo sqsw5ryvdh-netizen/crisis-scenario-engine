@@ -1,4 +1,7 @@
-"""Assumptions page: every parameter with its value and source (spec section 4.5)."""
+"""Assumptions and limits page: every parameter with its value and source (spec section
+4.5), and what the tool does not cover (docs/LIMITS.md)."""
+
+from pathlib import Path
 
 import streamlit as st
 
@@ -40,34 +43,40 @@ decisions = decision_table(config)
 information = information_table(config)
 flagged, total = assumption_counts(model, scenarios, banks, decisions, information)
 
-st.title("Assumptions")
-st.warning(
-    f"{flagged} of the {total} values on this page are assumptions: they have no verifiable "
-    "source yet. They are labelled ASSUMPTION and highlighted. Results must not be read as "
-    "calibrated estimates."
-)
-st.caption(
-    "Sampled = drawn at random between Low and High in each Monte Carlo run "
-    "(triangular distribution peaking at Value, each parameter independently)."
-)
+st.title("Assumptions and limits")
+assumptions_tab, limits_tab = st.tabs(["Assumptions", "Limits"])
+with limits_tab:
+    limits = Path(__file__).resolve().parents[2] / "docs" / "LIMITS.md"
+    # The page already has a title: the file's own first heading is left out.
+    st.markdown(limits.read_text(encoding="utf-8").split("\n", 1)[1])
+with assumptions_tab:
+    st.warning(
+        f"{flagged} of the {total} values on this page are assumptions: they have no verifiable "
+        "source yet. They are labelled ASSUMPTION and highlighted. Results must not be read as "
+        "calibrated estimates."
+    )
+    st.caption(
+        "Sampled = drawn at random between Low and High in each Monte Carlo run "
+        "(triangular distribution peaking at Value, each parameter independently)."
+    )
 
-st.subheader("Model parameters")
-show(model)
+    st.subheader("Model parameters")
+    show(model)
 
-st.subheader("Scenarios")
-show(scenarios)
+    st.subheader("Scenarios")
+    show(scenarios)
 
-st.subheader("Decisions")
-st.caption("Timing rule and the effect of each decision option.")
-show(decisions)
+    st.subheader("Decisions")
+    st.caption("Timing rule and the effect of each decision option.")
+    show(decisions)
 
-st.subheader("Information sets")
-st.caption(
-    "What each actor sees in the exercise script and in the decision log, and how old its "
-    "figures are. They do not change the simulation."
-)
-st.dataframe(information, hide_index=True, width="stretch")
+    st.subheader("Information sets")
+    st.caption(
+        "What each actor sees in the exercise script and in the decision log, and how old its "
+        "figures are. They do not change the simulation."
+    )
+    st.dataframe(information, hide_index=True, width="stretch")
 
-st.subheader("Bank archetypes")
-st.caption("Fictitious opening balance sheets.")
-show(banks)
+    st.subheader("Bank archetypes")
+    st.caption("Fictitious opening balance sheets.")
+    show(banks)

@@ -958,6 +958,7 @@ class SetupConfig(StrictModel):
 
     bank_alias: str = Field(min_length=1)
     country_alias: str = Field(min_length=1)
+    console_code: str = Field(min_length=1)  # asked by the control team's pages of the app
     sessions: Parameter
     session_hours: Parameter
     background: dict[str, str]

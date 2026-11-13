@@ -352,6 +352,7 @@ def test_linear_exercise_releases_a_course_correction_when_players_deviate():
 
 def console():
     at = AppTest.from_file(APP_PATH)
+    at.session_state["control_unlocked"] = True
     at.switch_page("views/console.py").run(timeout=60)
     return at
 
@@ -364,7 +365,9 @@ def test_console_starts_an_exercise_and_steps_the_clock():
     assert not at.exception
     state = at.session_state["live"]
     assert state.started and state.clock == (0, "08:00")
-    assert at.metric[0].value == "Day 0, 08:00" and at.metric[1].value == "Running"
+    shown = [m.value for m in at.markdown]
+    assert "#### Day 0, 08:00" in shown and "#### Running" in shown
+    assert not at.metric  # plain text: a metric would cut "Day 2, Thursday, 19:30" short
     at.button(key="live_step").click().run(timeout=60)
     at.button(key="live_jump").click().run(timeout=60)
     assert not at.exception
@@ -387,7 +390,7 @@ def test_console_records_a_decision_a_pause_an_ad_hoc_inject_and_an_undo():
     assert [(d.decision, d.option, d.deviates) for d in state.decisions] == [
         ("ela", "grant_capped", True)]
     at.button(key="live_pause").click().run(timeout=60)
-    assert at.session_state["live"].paused and at.metric[1].value == "Paused"
+    assert at.session_state["live"].paused and "#### Paused" in [m.value for m in at.markdown]
     assert at.button(key="live_step").disabled
     at.button(key="live_resume").click().run(timeout=60)
     at.multiselect(key="live_adhoc_to").set_value(["central_bank"]).run(timeout=60)

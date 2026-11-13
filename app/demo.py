@@ -14,14 +14,14 @@ from typing import Optional
 # Seconds each day stays on screen during playback.
 PLAYBACK_SECONDS = 0.5
 
-# Tabs of the simulation page.
+# Tabs of the Design page. The exercise pack is on the Prepare page.
 TAB_TIMELINE = "Timeline"
 TAB_DECISIONS = "Decisions"
 TAB_FUNDING = "Funding"
 TAB_UNCERTAINTY = "Uncertainty"
 TAB_SCRIPT = "Exercise script"
 # The contagion tab is hidden until SPEC_V2 phase F replaces it; its engine code stays.
-TABS = [TAB_TIMELINE, TAB_DECISIONS, TAB_FUNDING, TAB_UNCERTAINTY, TAB_SCRIPT]
+TABS = [TAB_TIMELINE, TAB_DECISIONS, TAB_FUNDING, TAB_UNCERTAINTY]
 
 HIGHLIGHT_COLOR = "#2a78d6"
 
@@ -70,11 +70,10 @@ DEMO_STEPS = (
     ),
     DemoStep(
         "Export the exercise script",
-        "Download the exercise pack: the dossier and rules of play for the players, the "
+        "Open the Prepare page and download the exercise pack: the dossier and rules of play for the players, the "
         "observer sheets, and for the control team the charter draft, the session plan, the "
         "main events list, the inject sheets, the role cards and the full-information pack.",
         "ctl_export",
-        TAB_SCRIPT,
     ),
 )
 

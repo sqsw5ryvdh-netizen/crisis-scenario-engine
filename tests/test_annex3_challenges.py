@@ -44,8 +44,11 @@ def plain():
 def test_the_new_injects_are_off_by_default_and_their_numbers_are_assumptions(tmp_path):
     for key in (*MARKET, *INFORMATION):
         item = SCRIPT.challenges[key]
-        assert not item.default and not item.hostile
-        assert key not in active_challenges(SCRIPT) and key not in active_challenges(SCRIPT, hostile=True)
+        assert not item.default and key not in active_challenges(SCRIPT)
+        # The information challenges belong to the hostile assumptions; the market shocks,
+        # which change the run, are only ever switched on by hand.
+        assert item.hostile == (key in INFORMATION)
+        assert (key in active_challenges(SCRIPT, hostile=True)) == (key in INFORMATION)
     for key in MARKET:
         assert SCRIPT.challenges[key].effect == "panic_shock"
         for name in (f"{key}_panic_shock", f"{key}_rollover_cut"):
