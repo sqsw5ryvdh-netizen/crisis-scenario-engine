@@ -9,7 +9,8 @@ from typing import Optional, Sequence
 
 from engine.config import DEFAULT_CONFIG_DIR, load_config
 from engine.decisions import OPEN_OUTCOMES, OUTCOME_LABELS, choices_of, decision_log_rows, scorecard_rows
-from engine.export import pack_files, pack_to_zip
+from engine.export import pack_files, pack_to_zip, report_files
+from engine.report import planned_report
 from engine.model import SimulationResult, simulate
 from engine.montecarlo import describe_failure_day, run_monte_carlo, summarise
 from engine.resolution import (
@@ -103,6 +104,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="write the exercise pack here: dossier and rules of play for the players, "
         "observer sheets, and for the control team the charter draft, session plan, main "
         "events list, inject sheets, role cards, control team pack and data",
+    )
+    parser.add_argument(
+        "--report-dir", type=Path,
+        help="write a draft closing report for the path here (pre-planned: no real times)",
     )
     parser.add_argument(
         "--compare-path",
@@ -222,6 +227,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 f"{summary.funding_need_high:.2f} {bank.unit}, "
                 f"median {summary.funding_need_median:.2f}"
             )
+
+    if args.report_dir is not None:
+        report = planned_report(
+            f"{bank.name}, {scenario.name}: {path.name}", bank, config.model, scenario,
+            config.decisions, config.script, choices, args.mode,
+        )
+        args.report_dir.mkdir(parents=True, exist_ok=True)
+        print()
+        for name, content in report_files(report, config.script).items():
+            (args.report_dir / name).write_bytes(content)
+            print(f"Exported {args.report_dir / name}")
 
     if args.export_dir is not None:
         other_key = args.compare_path or config.decisions.default_path

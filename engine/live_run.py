@@ -8,11 +8,16 @@ ad hoc inject and one pause. Real times are fixed, so the run is the same every 
 
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional, Sequence
 
 from engine import live
 from engine.config import load_config
 from engine.decisions import OUTCOME_LABELS, choices_of
+from engine.export import report_files
+from engine.report import live_report
 from engine.schema import PLAYERS, Config
 
 START = datetime(2028, 3, 1, 9, 0, 0)
@@ -20,11 +25,12 @@ STEP_SECONDS = 90  # real time between two entries of the script
 
 # What the players decide, by simulated day, at the close of that day.
 DECISIONS = {
-    2: [("ela", "not_decided", False)],  # the central bank waits: as planned
-    6: [("early_intervention_measures", "enhanced_reporting", False),  # not in the plan
-        ("prepare_payout", "none", True)],  # players stuck: the control team takes it, as planned
-    10: [("declare_foltf", "declare", False)],  # as planned
-    12: [("resolution_tool", "liquidation", False)],  # the plan was bail-in
+    2: [("ela", "not_decided", False, ("competent_authority",))],  # waits: as planned
+    6: [("early_intervention_measures", "enhanced_reporting", False, ()),  # not in the plan
+        ("prepare_payout", "none", True, ())],  # players stuck: the control team takes it
+    10: [("declare_foltf", "declare", False, ("resolution_authority",))],  # as planned
+    12: [("resolution_tool", "liquidation", False,  # the plan was bail-in
+          ("competent_authority", "central_bank", "deposit_guarantee_scheme"))],
 }
 AD_HOC_DAY = 7
 PAUSE_AFTER_DAY = 10  # the break at the FoLtF determination
@@ -65,9 +71,10 @@ def scripted_showcase(config: Config) -> tuple[live.LiveState, live.Context]:
             )
             sent = True
         if state.time == live.CLOSE:
-            for decision, option, by_control in DECISIONS.get(state.day, ()):
+            for decision, option, by_control, consulted in DECISIONS.get(state.day, ()):
                 state = live.apply(state, "decision", now(), context, decision=decision,
-                                   option=option, by_control=by_control)
+                                   option=option, by_control=by_control,
+                                   consulted=list(consulted))
             if state.day == PAUSE_AFTER_DAY:
                 state = live.apply(state, "pause", now(), context)
                 state = live.apply(state, "resume", now(PAUSE_MINUTES), context)
@@ -75,7 +82,11 @@ def scripted_showcase(config: Config) -> tuple[live.LiveState, live.Context]:
     return state, context
 
 
-def main() -> int:
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Scripted live run of the showcase.")
+    parser.add_argument("--report-dir", type=Path,
+                        help="also write the draft closing report and its data here")
+    args = parser.parse_args(argv)
     config = load_config()
     state, context = scripted_showcase(config)
     decisions, script = context.decisions.decisions, context.script
@@ -113,6 +124,18 @@ def main() -> int:
     for row in live.log_rows(state, context):
         if row["Entry"] != "step":
             print(f"  {row['Real time']} | {row['Simulated time']:<14} | {row['Entry']:<10} {row['What'][:90]}")
+    report = live_report(state, context)
+    print()
+    print("Closing report: what the model gives with one decision changed")
+    for case in report.counterfactuals:
+        text = case.differences if case.possible else f"not computed: {case.differences}"
+        print(f"  {case.actor}, {case.decision_name}: {case.change}")
+        print(f"      -> {text}")
+    if args.report_dir is not None:
+        args.report_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in report_files(report, context.script).items():
+            (args.report_dir / name).write_bytes(content)
+            print(f"Exported {args.report_dir / name}")
     return 0
 
 

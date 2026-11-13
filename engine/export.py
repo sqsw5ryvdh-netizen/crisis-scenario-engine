@@ -626,6 +626,7 @@ HANDBOOK_MAPPING = (
     ("Linear or dynamic exercise, course corrections", "Stated on every document", "par. 124-127"),
     ("control_team/feedback_checklist.docx", "Checklist for feedback collection, blank", "Annex 8"),
     ("SIMULATION label on every document and data file", "Header, footer and title; file names of data", "par. 174"),
+    ("Closing report draft (after the exercise, from the control console)", "Decisions with timing and figures held, coordination steps, counterfactuals; lessons and recommendations left blank", "par. 221-225; timing of output against input: par. 209"),
 )
 
 
@@ -639,6 +640,166 @@ def handbook_mapping_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
     _table(document, ["Output", "What it is", "EBA Handbook"],
            [list(row) for row in HANDBOOK_MAPPING])
     return _save(document)
+
+
+# --------------------------------------------------------------------------- closing report
+
+TO_COMPLETE = "To be completed - not generated"
+RECOMMENDATION_ROWS = 5
+
+
+def report_decisions_frame(report) -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "simulated_day": line.day,
+            "weekday": line.weekday,
+            "decided_by": line.actor,
+            "decision": line.decision_name,
+            "option": line.option_name,
+            "pre_planned_option": line.planned_name,
+            "as_pre_planned": line.as_planned,
+            "changed_the_path": line.applied,
+            "taken_by_the_control_team": line.by_control,
+            "consulted_first": ", ".join(line.consulted),
+            "figures_held": "; ".join(line.figures),
+            "figures_as_of_day": line.figures_day,
+            "real_time": line.real_time,
+            "real_minutes_taken": "" if line.minutes is None else round(line.minutes, 1),
+        }
+        for line in report.decisions
+    ])
+
+
+def report_counterfactuals_frame(report) -> pd.DataFrame:
+    rows = []
+    for case in report.counterfactuals:
+        row = {"decided_by": case.actor, "decision": case.decision_name, "change": case.change,
+               "computed": case.possible, "difference": case.differences}
+        if case.scorecard is not None:
+            row |= {label: value for label, value in scorecard_rows(case.scorecard, report.unit)}
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def closing_report_docx(report, script: ScriptConfig) -> bytes:
+    """Draft closing report (EBA Handbook, par. 221-225). Facts and differences in outcomes;
+    lessons and recommendations are left to people."""
+    texts = script.report
+    document = _start(f"Closing report (draft): {report.title}", report.bank_name, script,
+                      report.mode, landscape=True)
+    document.add_paragraph(texts.intro)
+    document.add_paragraph(texts.circulation)
+
+    document.add_heading("1. Overview", level=1)
+    _table(document, ["", ""], [list(row) for row in report.overview])
+    document.add_heading("Outcome scorecard", level=2)
+    _table(document, ["", "As it happened"],
+           [list(row) for row in scorecard_rows(report.actual, report.unit)])
+
+    document.add_heading("2. Timeline of decisions", level=1)
+    if not report.decisions:
+        document.add_paragraph("No decision was recorded.")
+    else:
+        _table(
+            document,
+            ["Simulated day", "Decided by", "Decision", "Option", "Pre-planned option",
+             "Real time", "Real minutes from opening", "Notes"],
+            [[
+                f"Day {line.day}" + (f", {line.weekday}" if line.weekday else ""),
+                line.actor, line.decision_name, line.option_name, line.planned_name,
+                line.real_time.replace("T", " "),
+                "not recorded" if line.minutes is None else f"{line.minutes:.1f}",
+                "; ".join(note for note in (
+                    "" if line.as_planned else "different from the pre-planned path",
+                    "taken by the control team" if line.by_control else "",
+                    "" if line.applied else "logged; the path did not change",
+                ) if note),
+            ] for line in report.decisions],
+        )
+        document.add_paragraph(
+            "Real minutes are counted from the moment the decision opened to the moment it "
+            "was recorded, pauses excluded."
+            if report.live else "The path was not played, so no real time was recorded."
+        )
+        document.add_heading("Figures held by the deciding player", level=2)
+        document.add_paragraph(
+            "For each decision, the figures the deciding player had at that moment: its own "
+            "set, at its own reporting delay."
+        )
+        _table(
+            document,
+            ["Simulated day", "Decided by", "Decision", "Figures as of", "Figures held"],
+            [[f"Day {line.day}", line.actor, line.decision_name, f"day {line.figures_day}",
+              "; ".join(line.figures)] for line in report.decisions],
+        )
+
+    document.add_heading("3. Coordination steps", level=1)
+    if not report.live:
+        document.add_paragraph("The path was not played, so no coordination step was recorded.")
+    elif not report.steps:
+        document.add_paragraph("No coordination step was expected up to this point.")
+    else:
+        document.add_paragraph(texts.coordination_note)
+        _table(
+            document,
+            ["About", "Step expected by the script", "By", "With or to", "Record"],
+            [[step.about, step.step, step.by, step.to,
+              ("Recorded as done" if step.recorded else "Not recorded as done") + f": {step.how}"]
+             for step in report.steps],
+        )
+        done = sum(step.recorded for step in report.steps)
+        document.add_paragraph(
+            f"{done} of {len(report.steps)} steps are recorded as done."
+        )
+
+    if report.conduct:
+        document.add_heading("4. Conduct of the exercise", level=1)
+        _table(document, ["", ""], [list(row) for row in report.conduct])
+
+    document.add_heading("5. What the model gives with one decision changed", level=1)
+    document.add_paragraph(texts.counterfactual_note)
+    _table(
+        document,
+        ["Decided by", "Decision", "Change", "Difference from what happened"],
+        [[case.actor, case.decision_name, case.change,
+          case.differences if case.possible else f"Not computed: {case.differences}"]
+         for case in report.counterfactuals],
+    )
+
+    number = 6
+    for section in texts.human_sections:
+        document.add_heading(f"{number}. {section.title}", level=1)
+        document.add_paragraph().add_run(f"[{TO_COMPLETE}]").bold = True
+        document.add_paragraph(section.prompt)
+        for _ in range(3):
+            document.add_paragraph("_" * 100)
+        number += 1
+    document.add_heading(f"{number}. Recommendations", level=1)
+    document.add_paragraph().add_run(f"[{TO_COMPLETE}]").bold = True
+    document.add_paragraph(
+        "Each recommendation is assigned to a team or an authority, ranked by priority where "
+        "relevant, and given a timeframe (EBA Handbook, par. 225)."
+    )
+    _table(document, ["Recommendation", "Assigned to", "Priority", "To be actioned by"],
+           [["", "", "", ""] for _ in range(RECOMMENDATION_ROWS)])
+    return _save(document)
+
+
+def report_files(report, script: ScriptConfig) -> dict[str, bytes]:
+    """The closing report and its data: file name -> content."""
+    return {
+        "SIMULATION_closing_report_draft.docx": closing_report_docx(report, script),
+        "SIMULATION_report_decisions.csv": _csv(report_decisions_frame(report)),
+        "SIMULATION_report_counterfactuals.csv": _csv(report_counterfactuals_frame(report)),
+    }
+
+
+def report_to_zip(report, script: ScriptConfig) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in report_files(report, script).items():
+            archive.writestr(zipfile.ZipInfo(name, date_time=(2028, 1, 1, 0, 0, 0)), content)
+    return buffer.getvalue()
 
 
 def _timeline_rows(pack: ExercisePack, branch) -> list[list[str]]:

@@ -965,6 +965,21 @@ class SetupConfig(StrictModel):
         return self
 
 
+class HumanSection(StrictModel):
+    title: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+
+
+class ReportConfig(StrictModel):
+    """Texts of the closing report (SPEC_V3 phase I)."""
+
+    intro: str = Field(min_length=1)
+    circulation: str = Field(min_length=1)
+    coordination_note: str = Field(min_length=1)
+    counterfactual_note: str = Field(min_length=1)
+    human_sections: list[HumanSection] = Field(min_length=1)
+
+
 class GlossaryEntry(StrictModel):
     term: str = Field(min_length=1)
     definition: str = Field(min_length=1)
@@ -1005,6 +1020,8 @@ class ScriptConfig(StrictModel):
     roles: dict[str, Role]
     # Set-up documents: dossier, session plan, charter, rules of play, observers, feedback.
     setup: SetupConfig
+    # Closing report: notes of the generated part and the sections left to people.
+    report: ReportConfig
     debrief: list[str]
     glossary: list[GlossaryEntry]
 

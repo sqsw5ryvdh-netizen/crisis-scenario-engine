@@ -15,7 +15,8 @@ from app import store
 from engine import live
 from engine.config import load_config
 from engine.decisions import OUTCOME_LABELS, choices_of
-from engine.export import TIMELINE_COLUMNS
+from engine.export import TIMELINE_COLUMNS, report_to_zip
+from engine.report import live_report
 from engine.schema import ACTORS, PLAYERS
 from engine.script import MODE_LABELS, MODE_TEXT, MODES
 
@@ -88,7 +89,8 @@ def close_exercise() -> None:
 
 def record_decision(decision: str) -> None:
     act("decision", decision=decision, option=st.session_state[f"live_option_{decision}"],
-        by_control=st.session_state.get(f"live_by_control_{decision}", False))
+        by_control=st.session_state.get(f"live_by_control_{decision}", False),
+        consulted=list(st.session_state.get(f"live_consulted_{decision}", [])))
 
 
 def send_adhoc() -> None:
@@ -226,6 +228,15 @@ with st.expander("Players' pages and saving"):
         f"Saved after every entry as `{store.path_of(exercise_id).name}` in the folder "
         f"`exercises/`. Control team's code, to reload it: `{codes[store.CONTROL]}`"
     )
+    st.download_button(
+        "Download the draft closing report (.zip)",
+        data=report_to_zip(live_report(st.session_state["live"], context), script),
+        file_name=f"SIMULATION_closing_report_{exercise_id}.zip", mime="application/zip",
+        key="live_download_report",
+        help="Decisions with their timing and the figures each player held, coordination "
+        "steps recorded, and what the model gives with one decision changed. Lessons and "
+        "recommendations are left blank for you. Can be drawn up at any time.",
+    )
     left, right = st.columns(2)
     left.download_button(
         "Download the log (.csv)",
@@ -246,7 +257,7 @@ if not opened:
 for inject in opened:
     due = inject.decision_due
     definition = decisions.decisions[due.decision]
-    columns = st.columns([3, 3, 2, 1])
+    columns = st.columns([3, 2, 2, 2, 1])
     played = "" if definition.actor in PLAYERS else " (played by the control team)"
     columns[0].markdown(
         f"**{script.actors[definition.actor]}{played}**: {due.name}  \n"
@@ -256,9 +267,16 @@ for inject in opened:
         "Option", list(definition.options), key=f"live_option_{due.decision}",
         format_func=lambda k, d=definition: d.options[k].name, label_visibility="collapsed",
     )
-    columns[2].checkbox("Taken by the control team", key=f"live_by_control_{due.decision}",
+    columns[2].multiselect(
+        "Consulted first", [a for a in ACTORS if a != definition.actor],
+        key=f"live_consulted_{due.decision}", format_func=lambda k: script.actors[k],
+        placeholder="Consulted first", label_visibility="collapsed",
+        help="Whom the deciding team consulted before deciding, as you observed it. The "
+        f"script expects: {', '.join(due.consult) or 'nobody'}.",
+    )
+    columns[3].checkbox("Taken by the control team", key=f"live_by_control_{due.decision}",
                         help="Tick when the players could not decide and the control team did.")
-    columns[3].button("Record", on_click=record_decision, args=(due.decision,),
+    columns[4].button("Record", on_click=record_decision, args=(due.decision,),
                       key=f"live_record_{due.decision}", disabled=state.paused or state.ended)
 st.caption(
     "A decision recorded now is taken at the close of this simulated day and is in effect "

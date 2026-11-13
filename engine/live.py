@@ -138,6 +138,8 @@ class RecordedDecision:
     planned_option: str
     deviates: bool  # differs from the pre-planned path
     seconds_taken: Optional[float]  # real time since the decision opened, pauses excluded
+    # Whom the deciding player consulted first, as the control team recorded it.
+    consulted: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -382,6 +384,9 @@ def _record(state: LiveState, entry: Entry, context: Context) -> LiveState:
     since = next(r.real_time for r in state.released if r.inject is opened[decision])
     taken = (datetime.fromisoformat(now) - datetime.fromisoformat(since)).total_seconds()
     linear = state.setup.mode == "linear"
+    consulted = tuple(data.get("consulted", ()))
+    if set(consulted) - set(ACTORS) or definition.actor in consulted:
+        raise LiveError("'consulted' must name other players or bank management")
     record = RecordedDecision(
         decision=decision,
         option=option,
@@ -393,6 +398,7 @@ def _record(state: LiveState, entry: Entry, context: Context) -> LiveState:
         planned_option=planned_option,
         deviates=option != planned_option,
         seconds_taken=taken - paused_seconds(state, since, now),
+        consulted=consulted,
     )
     state = replace(state, decisions=state.decisions + (record,))
     state = _refresh(state, context, now, since=state.clock)

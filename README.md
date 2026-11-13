@@ -145,6 +145,17 @@ in the links keep a team from opening another team's page by mistake, and are no
 decisions, two of them different from the plan, one ad hoc inject, one pause) and prints
 its log.
 
+## Closing report
+
+After a live exercise, or at any point during it, the console gives a draft closing report
+(Word document and data). It holds the timeline of decisions with the figures the deciding
+player held and the real time taken, the coordination steps recorded as done or not recorded,
+and what the model gives with one decision changed: another option, or the same option one
+day earlier or later. It states facts and differences in outcomes; it does not assess the
+players. Observers' notes, lessons learned and recommendations are left blank for people.
+`.venv/bin/python -m engine.live_run --report-dir exports/report` writes the report of the
+scripted run.
+
 Who sees what is set in `config/decisions.yaml` (`information`); the wording, clock times
 and coordination steps are in `config/script.yaml`. All of it is a draft.
 

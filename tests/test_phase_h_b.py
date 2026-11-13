@@ -69,7 +69,7 @@ def test_scripted_run_has_five_decisions_two_off_plan_one_ad_hoc_and_one_pause(r
 def test_scripted_run_is_the_same_every_time(run, capsys):
     again, _ = scripted_showcase(CONFIG)
     assert again == run[0]
-    assert main() == 0
+    assert main([]) == 0
     out = capsys.readouterr().out
     assert "DIFFERENT from the plan" in out and "Outcome: Liquidation on day 13" in out
     assert out.count("| decision   ") == 5 and "| adhoc" in out and "| pause" in out

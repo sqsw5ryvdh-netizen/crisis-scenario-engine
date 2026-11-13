@@ -548,6 +548,33 @@ setup:
     - "What are the three key learnings from SimEx, in your view?"
     - "If you could change three things for the next simulation, which would these be?"
 
+# Closing report (SPEC_V3 phase I; EBA Handbook, par. 221-225). The generated part states what
+# was recorded and what the model computes. It never assesses the players: keep these texts
+# free of judging words. human_sections are left empty for people to write.
+report:
+  intro: >-
+    Draft closing report, generated from the log of the exercise. It states what was
+    recorded and what the simulation model computes. It does not assess the players. The
+    sections marked "to be completed" are for the design team, the control team and the
+    observers.
+  circulation: >-
+    A first draft is circulated to the players and the observers for comments before the
+    report is final.
+  coordination_note: >-
+    "Recorded as done" means that the control team recorded the step during the exercise.
+    "Not recorded as done" means only that there is no such record.
+  counterfactual_note: >-
+    Each line changes one decision and keeps every other decision as it was recorded. A
+    decision that depends on the changed one is taken at the first close at which its
+    condition holds. The figures come from the simulation model and rest on its assumptions.
+  human_sections:
+    - title: Observers' notes
+      prompt: One paragraph per team, from the observer sheets.
+    - title: Feedback received
+      prompt: Summary of the debrief sessions and of the feedback questionnaires.
+    - title: Lessons learned
+      prompt: What the exercise showed about procedures, documents, tools and coordination.
+
 # One question per decision, put to the actor that decides.
 questions:
   public_statement: What would you say in public, and what would you leave out? Who needs to see the statement before it goes out?
