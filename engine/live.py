@@ -535,3 +535,128 @@ def log_rows(state: LiveState, context: Context) -> list[dict[str, str]]:
             "What": what,
         })
     return rows
+
+
+# --------------------------------------------------------------------------- saving
+
+
+SAVE_FORMAT = 1
+
+
+def to_saved(state: LiveState, context: Context) -> dict:
+    """The exercise as plain data: set-up, the configuration it ran on, and the log.
+
+    Enough to reproduce it exactly with from_saved, whatever the config files say later.
+    """
+    setup = state.setup
+    return {
+        "format": SAVE_FORMAT,
+        "label": "SIMULATION - exercise material, not a real event",
+        "setup": {
+            "name": setup.name,
+            "bank": setup.bank.model_dump(),
+            "scenario": setup.scenario.model_dump(),
+            "planned": [[c.decision, c.option, c.day] for c in setup.planned],
+            "mode": setup.mode,
+            "ambient": setup.ambient,
+            "writedown_level": setup.writedown_level,
+            "challenges": list(setup.challenges),
+            "hostile": setup.hostile,
+        },
+        "config": {
+            "model": context.params.model_dump(),
+            "decisions": context.decisions.model_dump(),
+            "script": context.script.model_dump(),
+        },
+        "log": [
+            {"kind": e.kind, "real_time": e.real_time, "data": e.data, "day": e.day, "time": e.time}
+            for e in state.entries
+        ],
+    }
+
+
+def from_saved(data: dict) -> tuple[LiveState, Context]:
+    """Rebuild an exercise from saved data by replaying its log on its own configuration."""
+    if data.get("format") != SAVE_FORMAT:
+        raise LiveError("this file is not a saved exercise of this version")
+    saved, config = data["setup"], data["config"]
+    context = Context(
+        ModelParams.model_validate(config["model"]),
+        DecisionsConfig.model_validate(config["decisions"]),
+        ScriptConfig.model_validate(config["script"]),
+    )
+    setup = LiveSetup(
+        name=saved["name"],
+        bank=Bank.model_validate(saved["bank"]),
+        scenario=Scenario.model_validate(saved["scenario"]),
+        planned=tuple(Choice(*choice) for choice in saved["planned"]),
+        mode=saved["mode"],
+        ambient=saved["ambient"],
+        writedown_level=saved["writedown_level"],
+        challenges=tuple(saved["challenges"]),
+        hostile=saved["hostile"],
+    )
+    entries = [Entry(e["kind"], e["real_time"], dict(e["data"])) for e in data["log"]]
+    return replay(setup, entries, context), context
+
+
+# --------------------------------------------------------------------------- players' view
+
+
+def _figure_rows(figures: Sequence, with_threshold: bool = False, with_day: bool = False) -> list:
+    rows = []
+    for figure in figures:
+        row = [figure.label, figure.text[len(figure.label) + 1:]]
+        if with_threshold:
+            row.append(figure.threshold_text)
+        if with_day:
+            row.append(f"day {figure.as_of_day}")
+        rows.append(row)
+    return rows
+
+
+def player_view(state: LiveState, context: Context, player: str) -> dict:
+    """What one player's page shows: its own injects so far, as plain data.
+
+    Built from that player's released injects only. Nothing of the control team's notes
+    (purpose, trigger, expected response, how it was released) is in it.
+    """
+    if player not in PLAYERS:
+        raise LiveError(f"'{player}' is not a player")
+    linear = state.setup.mode == "linear"
+    injects = []
+    for item in released_to(state, player):
+        inject, due = item.inject, item.inject.decision_due
+        injects.append({
+            "day": inject.day,
+            "weekday": inject.weekday,
+            "time": inject.time,
+            "title": inject.title,
+            "sender": inject.sender,
+            "text": inject.text.split("\n"),
+            "headline": _figure_rows(inject.headline, with_threshold=True),
+            "headline_day": inject.headline[0].as_of_day if inject.headline else None,
+            "notified": _figure_rows(inject.notified, with_day=True),
+            "estimates": _figure_rows(inject.resolution),
+            "report": _figure_rows(inject.figures),
+            "report_day": inject.figures[0].as_of_day if inject.figures else None,
+            "decision": None if due is None else {
+                "question": due.question,
+                "options": [[o.name, "" if linear else o.branch_code] for o in due.options],
+                "deadline_day": due.deadline_day,
+                "consult": list(due.consult),
+                "inform": list(due.inform),
+            },
+            "received": item.real_time,
+        })
+    return {
+        "exercise": state.setup.name,
+        "bank": state.setup.bank.name,
+        "player": context.script.actors[player],
+        "mode": state.setup.mode,
+        "day": state.day,
+        "weekday": state.setup.scenario.weekday(state.day) if state.day >= 1 else "",
+        "time": state.time,
+        "status": "ended" if state.ended else "paused" if state.paused else "running",
+        "injects": injects,
+    }

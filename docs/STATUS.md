@@ -1,31 +1,36 @@
 # STATUS
 
-Last completed: **SPEC_V3 phase H, part a - Live engine and control console** (2026-11-13). Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, SPEC_V3 phase G. Next: phase H part b (players' pages, save, reload and replay, acceptance run), after review.
+Last completed: **SPEC_V3 phase H - Live (dynamic) mode** (parts a and b; 2026-11-13). Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, SPEC_V3 phase G. Next: phase I (closing report), to be planned first.
 
-## What was built in H-a
-- **`engine/live.py`**, pure: a live exercise is a set-up plus a log, and the state is what replaying the log gives. Every entry carries the real time given by the caller and the simulated moment it led to. The engine never reads the clock.
-- **Simulated clock** stepped by the control team: next inject time, close of the day, or a jump to the next milestone (stage change, decision opening, end).
-- **Path.** The pre-planned path, changed by what the players decide. A decision recorded during day N is taken at the close of day N. A planned decision not taken by the close of its day drops out and can still be taken later. A linear exercise keeps its path and releases a course correction when the players deviate.
-- **Release.** An inject goes to its recipient when the clock reaches it, as it stands on the path known then; injects already handed out are never rewritten. What a player should pass on is released only by the control team, or marked as passed on.
-- **Also:** ad hoc injects (free text or library), pause and resume, undo of the last entry (both stay in the log), real time taken per decision with pauses excluded, "taken by the control team" flag.
-- **Control console** page in the app: start, clock, open decisions, pending notifications, ad hoc inject, full-information state, what comes next, what each recipient has received, log.
+## What was built in H-b
+- **Saving.** After every entry the console writes the exercise to one file in `exercises/` (git-ignored, name starts with `SIMULATION_`): set-up, a copy of the configuration it runs on, the log, the access codes and each player's view.
+- **Players' pages.** One read-only page per player, opened with a link from the console. It shows only that team's injects so far, with the simulated time and the status, and updates by itself every 3 seconds. The page has no menu to the control team's pages.
+- **Reload and replay.** A saved exercise is reloaded with the control team's code and continues where it stopped, on its own saved configuration. The console replays the log entry by entry. The log and the exercise can be downloaded.
+- **Scripted acceptance run**: `python -m engine.live_run`, with fixed real times.
+- H-a (live engine, control console) is described in the README, section "Live exercise".
 
 ## How to run
-- App: `./start.sh`, page "Control console" | Tests: `.venv/bin/pytest -q`
+- App: `./start.sh`, page "Control console" | Tests: `.venv/bin/pytest -q` | Scripted run: `.venv/bin/python -m engine.live_run`
 
-## Output (H-a; the phase H acceptance run comes with part b)
-Showcase entered live as planned: 42 log entries, 13 simulated days, outcome bail-in, and every recipient gets exactly the injects of the pre-planned branch. With liquidation chosen at the close of day 12 instead: outcome liquidation, earlier injects unchanged. With FoLtF not declared on day 10: no declaration on the path from day 11; declared on day 11, in effect day 12.
-- `pytest -q` -> `1345 passed`, including: nothing is released before its time; a recipient only gets its own injects and figures; replaying the log gives the same exercise; undo restores the previous state exactly.
+## Acceptance output (phase H, scripted run of the showcase)
+| Day | Decision entered live | Against the plan |
+|---|---|---|
+| 2 | Central bank, ELA: no decision | as planned |
+| 6 | Competent authority, early intervention: require daily reporting | different |
+| 6 | Deposit guarantee scheme, payout preparation: none (taken by the control team) | as planned |
+| 10 | Competent authority, FoLtF: declare | as planned |
+| 12 | Resolution authority, tool: liquidation | different (plan: bail-in) |
+
+Log: 58 entries (40 clock steps, 5 decisions, 1 ad hoc inject to two players, 1 pause of 46.5 real minutes at the FoLtF determination, 8 fallback injects released, 1 notification passed on by the player). Outcome: liquidation on day 13. Injects received: competent authority 18, resolution authority 19, central bank 12, deposit guarantee scheme 11.
+- `pytest -q` -> `1360 passed`, including "a player's page never shows another player's figures" (checked at every fourth entry of the run and on the rendered pages), "a saved exercise reloads to exactly the same state" and "player page refuses a wrong code or another team's code".
 
 ## Deviations and choices
-- "Recomputes the path from that point" is done by re-running the whole deterministic simulation with the decisions so far: the past is identical by construction.
-- Until the players decide, the path assumes the planned decisions still ahead. Without this the resolution-period injects (valuation, loss allocation) could not exist before the tool is chosen.
-- If the players choose another tool than planned, the loss allocation they already received is the planned tool's and is not re-sent. The control team can send an ad hoc inject.
-- Recording the option that means "no decision yet" is logged and timed but leaves the decision open.
-- A library inject with resolution figures can be sent ad hoc only once FoLtF is in effect; the rating downgrade cannot be sent ad hoc because it changes the run.
-- The console keeps the exercise in the browser session: closing the tab loses it until part b adds saving.
+- No accounts, as specified. The codes in the links keep a team from opening another team's page by mistake; they are not security. Anyone who can reach the app can open the control console, and the exercise file holds everything in clear.
+- A player's page lags the console by up to 3 seconds (it polls the file).
+- The players' pages are for the four authorities. Bank management is played by the control team and is read on the console.
+- A saved exercise carries its configuration, so later changes to `config/` do not alter a reload or replay.
+- No real-time countdown per session on the console.
 
 ## Open questions
-- Replay needs the same config files as the original run; should a saved exercise carry a copy of the config (part b)?
-- Should the console show a real-time countdown per session from the session plan?
-- From phase G: who relays to the deposit guarantee scheme; wording needs a practitioner's review; screenshots are out of date.
+- Should the control console itself be behind the control team's code, so that a player who removes the query from the link cannot open it?
+- From earlier phases: who relays to the deposit guarantee scheme; wording needs a practitioner's review; screenshots are out of date.

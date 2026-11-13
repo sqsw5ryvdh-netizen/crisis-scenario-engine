@@ -1,14 +1,17 @@
 """Control console (SPEC_V3 phase H): the control team runs a live exercise from here.
 
-The page only calls engine.live. The state is kept in the browser session; saving, reloading
-and the players' pages come with part b.
+The page only calls engine.live. After every entry the exercise is saved to a file
+(app/store.py), which the players' pages read and from which it can be reloaded and replayed.
 """
 
 from datetime import datetime
 
+import json
+
 import pandas as pd
 import streamlit as st
 
+from app import store
 from engine import live
 from engine.config import load_config
 from engine.decisions import OUTCOME_LABELS, choices_of
@@ -24,7 +27,14 @@ def get_config():
 
 config = get_config()
 script, decisions = config.script, config.decisions
-context = live.Context(config.model, decisions, script)
+# A reloaded exercise runs on the configuration saved with it, not on today's files.
+context = st.session_state.get("live_context") or live.Context(config.model, decisions, script)
+script, decisions = context.script, context.decisions
+
+
+def save() -> None:
+    state = st.session_state
+    store.save(state["live_id"], state["live"], context, state["live_codes"])
 
 
 def now() -> str:
@@ -36,6 +46,7 @@ def act(kind: str, **data) -> None:
     try:
         st.session_state["live"] = live.apply(st.session_state["live"], kind, now(), context, **data)
         st.session_state["live_error"] = ""
+        save()
     except live.LiveError as error:
         st.session_state["live_error"] = str(error)
 
@@ -56,10 +67,23 @@ def start_exercise() -> None:
     )
     state["live"] = live.start(setup, now(), context)
     state["live_error"] = ""
+    state["live_id"], state["live_codes"] = store.new_id(), store.new_codes()
+    save()
+
+
+def reload_exercise() -> None:
+    state = st.session_state
+    loaded = store.load(state.get("live_reload_id") or "", state.get("live_reload_code", "").strip())
+    if loaded is None:
+        state["live_error"] = "The exercise could not be reloaded: check the control team's code."
+        return
+    state["live"], state["live_context"], state["live_codes"] = loaded
+    state["live_id"], state["live_error"] = state["live_reload_id"], ""
 
 
 def close_exercise() -> None:
-    st.session_state.pop("live", None)
+    for key in ("live", "live_context", "live_id", "live_codes"):
+        st.session_state.pop(key, None)
 
 
 def record_decision(decision: str) -> None:
@@ -132,6 +156,20 @@ if "live" not in st.session_state:
         f"In the exercise the bank is called {script.setup.bank_alias}. Simulated time moves "
         "only when you step the clock."
     )
+    st.subheader("Reload a saved exercise")
+    saved = dict(store.saved_exercises())
+    if not saved:
+        st.caption("No exercise has been saved yet.")
+    else:
+        left, right = st.columns(2)
+        left.selectbox("Saved exercise", list(saved), key="live_reload_id",
+                       format_func=lambda k: saved[k])
+        right.text_input("Control team's code", key="live_reload_code", type="password",
+                         help="Shown on the console of the exercise, under \"Players' pages and saving\".")
+        st.button("Reload", on_click=reload_exercise, key="live_reload")
+        st.caption("A reloaded exercise continues where it stopped, on the configuration it was started with.")
+    if st.session_state.get("live_error"):
+        st.error(st.session_state["live_error"])
     st.stop()
 
 state = st.session_state["live"]
@@ -167,11 +205,39 @@ buttons[3].button("Undo the last entry", on_click=act, args=("undo",), key="live
                   disabled=len(state.entries) < 2 or state.paused,
                   help="Takes back the last entry. Both stay in the log.")
 buttons[4].button("Close the exercise", on_click=close_exercise, key="live_close",
-                  help="Leaves this exercise. It is not saved yet (part b).")
+                  help="Leaves this exercise. It stays saved and can be reloaded with the control team's code.")
 if st.session_state.get("live_error"):
     st.error(st.session_state["live_error"])
 if state.ended:
     st.success(f"The exercise has ended. Outcome: {OUTCOME_LABELS[result.outcome]}.")
+
+with st.expander("Players' pages and saving"):
+    codes, exercise_id = st.session_state["live_codes"], st.session_state["live_id"]
+    st.caption(
+        "Give each team its own link. A page shows only that team's injects so far and "
+        "updates by itself every few seconds. On another computer, replace the start of "
+        "the link by this computer's network address and port. The codes keep a team from "
+        "opening another team's page by mistake; they are not security."
+    )
+    for player in PLAYERS:
+        link = f"/?exercise={exercise_id}&player={player}&code={codes[player]}"
+        st.markdown(f"- {script.actors[player]}: [{link}]({link})")
+    st.markdown(
+        f"Saved after every entry as `{store.path_of(exercise_id).name}` in the folder "
+        f"`exercises/`. Control team's code, to reload it: `{codes[store.CONTROL]}`"
+    )
+    left, right = st.columns(2)
+    left.download_button(
+        "Download the log (.csv)",
+        data=pd.DataFrame(live.log_rows(st.session_state["live"], context)).to_csv(index=False),
+        file_name=f"SIMULATION_log_{exercise_id}.csv", mime="text/csv", key="live_download_log",
+    )
+    right.download_button(
+        "Download the exercise (.json, to reload or replay)",
+        data=json.dumps(live.to_saved(st.session_state["live"], context)),
+        file_name=f"SIMULATION_exercise_{exercise_id}.json", mime="application/json",
+        key="live_download_exercise",
+    )
 
 st.markdown("### Decisions open to the players")
 opened = live.open_decisions(state)
@@ -290,3 +356,33 @@ with st.expander(f"Decisions recorded ({len(state.decisions)})"):
         )
 with st.expander(f"Log ({len(state.entries)} entries)"):
     st.dataframe(pd.DataFrame(live.log_rows(state, context)), hide_index=True, width="stretch")
+
+with st.expander("Replay"):
+    st.caption(
+        "Go back through the exercise entry by entry. This only looks at the log: it "
+        "changes nothing."
+    )
+    if len(state.entries) < 2:
+        st.caption("There is nothing to replay yet.")
+    else:
+        upto = st.slider("Entries replayed", 1, len(state.entries), len(state.entries),
+                         key="live_replay_upto")
+        past = live.replay(
+            setup, [live.Entry(e.kind, e.real_time, e.data) for e in state.entries[:upto]], context)
+        entry = past.entries[-1]
+        st.markdown(
+            f"After entry {upto} ({entry.kind.replace('_', ' ')}, {entry.real_time}): simulated "
+            f"time day {past.day}, {past.time}; "
+            f"{'paused' if past.paused else 'ended' if past.ended else 'running'}; expected "
+            f"outcome then: {OUTCOME_LABELS[past.branch.result.outcome].lower()}."
+        )
+        st.dataframe(
+            pd.DataFrame([
+                {"Recipient": script.actors[actor],
+                 "Injects received": len(live.released_to(past, actor)),
+                 "Last received": (live.released_to(past, actor)[-1].inject.title
+                                   if live.released_to(past, actor) else "")}
+                for actor in ACTORS
+            ]),
+            hide_index=True, width="stretch",
+        )

@@ -132,8 +132,18 @@ records each decision when the players take it. The path is the pre-planned one 
 players decide otherwise; the engine then recomputes it and releases the next injects to
 each recipient within its information set. The console also sends ad hoc injects (free text
 or from the library), releases what a player failed to pass on, pauses and resumes, and
-undoes the last entry. Every entry is logged with real and simulated time. Saving, reloading
-and the players' own pages are not built yet.
+undoes the last entry. Every entry is logged with real and simulated time.
+
+After every entry the exercise is saved as one file in `exercises/` (not in git). The
+console gives one link per team: a read-only page that shows only that team's injects so far
+and updates by itself. On another computer of the same network, use this computer's address
+in the link. A saved exercise can be reloaded with the control team's code and replayed
+entry by entry; it runs on the configuration saved with it. There are no accounts: the codes
+in the links keep a team from opening another team's page by mistake, and are not security.
+
+`.venv/bin/python -m engine.live_run` runs a scripted live exercise of the showcase (five
+decisions, two of them different from the plan, one ad hoc inject, one pause) and prints
+its log.
 
 Who sees what is set in `config/decisions.yaml` (`information`); the wording, clock times
 and coordination steps are in `config/script.yaml`. All of it is a draft.
