@@ -109,7 +109,10 @@ def test_pack_layout_inject_sheets_main_events_list_and_role_cards(dynamic):
         assert f"control_team/role_cards/{role}.docx" in files
     assert "control_team/main_events_list.docx" in files
     assert "control_team/data/SIMULATION_main_events_list.csv" in files
-    assert not any(name.startswith("players/") for name in files)
+    # What players get in advance is the dossier, the rules and the questionnaire: no injects.
+    assert sorted(name for name in files if name.startswith("players/")) == [
+        "players/feedback_questionnaire.docx", "players/mock_bank_dossier.docx",
+        "players/rules_of_play.docx"]
 
 
 # ------------------------------------------------- G4: main events list

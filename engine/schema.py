@@ -910,6 +910,61 @@ class Role(StrictModel):
         return self
 
 
+# Rules of play: the three categories of the EBA Handbook, par. 155.
+RULE_CATEGORIES = {
+    "scenario": "Scenario-specific rules",
+    "play": "Simulation play rules",
+    "behaviour": "Participant behaviour",
+}
+CHARTER_PLACEHOLDERS = ("bank_name", "taxonomy", "mode", "decisions", "challenges")
+
+
+class CharterElement(StrictModel):
+    """One row of the SimEx Charter (Annex 1 of the Handbook) with a draft proposal."""
+
+    element: str = Field(min_length=1)
+    description: str = ""
+    draft: str = ""  # empty: left blank for the design team
+
+    @model_validator(mode="after")
+    def _check(self) -> "CharterElement":
+        _check_text(self.draft, CHARTER_PLACEHOLDERS)
+        return self
+
+
+class SetupConfig(StrictModel):
+    """Texts and inputs of the set-up documents (SPEC_V3 G7, G8, G10)."""
+
+    bank_alias: str = Field(min_length=1)
+    country_alias: str = Field(min_length=1)
+    sessions: Parameter
+    session_hours: Parameter
+    background: dict[str, str]
+    charter: list[CharterElement] = Field(min_length=1)
+    rules: dict[str, list[str]]
+    observer_tracks: list[str] = Field(min_length=1)
+    questionnaire_intro: str = Field(min_length=1)
+    questionnaire: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SetupConfig":
+        if self.sessions.value < 1 or self.sessions.value != int(self.sessions.value):
+            raise ValueError("setup.sessions must be a whole number >= 1")
+        if self.session_hours.value <= 0:
+            raise ValueError("setup.session_hours must be > 0")
+        if "default" not in self.background:
+            raise ValueError("setup.background needs a 'default' text")
+        if set(self.rules) != set(RULE_CATEGORIES) or not all(self.rules.values()):
+            raise ValueError(f"setup.rules must give rules for exactly {list(RULE_CATEGORIES)}")
+        texts = [*self.background.values(), *(r for rules in self.rules.values() for r in rules)]
+        for text in texts:
+            _check_text(text, ("bank_name", "country"))
+        for text in [*texts, *self.observer_tracks, *(c.draft for c in self.charter)]:
+            if any(character.isdigit() for character in text):
+                raise ValueError("setup texts must not carry figures")
+        return self
+
+
 class GlossaryEntry(StrictModel):
     term: str = Field(min_length=1)
     definition: str = Field(min_length=1)
@@ -948,6 +1003,8 @@ class ScriptConfig(StrictModel):
     challenges: dict[str, ChallengeInject] = Field(default_factory=dict)
     # The stakeholders the control team plays.
     roles: dict[str, Role]
+    # Set-up documents: dossier, session plan, charter, rules of play, observers, feedback.
+    setup: SetupConfig
     debrief: list[str]
     glossary: list[GlossaryEntry]
 
@@ -1003,6 +1060,9 @@ class Config(StrictModel):
         for name in ("questions", "coordination"):
             if set(getattr(self.script, name)) != decisions:
                 raise ValueError(f"script.{name} must cover exactly the decisions {sorted(decisions)}")
+        unknown = set(self.script.setup.background) - set(self.scenarios) - {"default"}
+        if unknown:
+            raise ValueError(f"script.setup.background names unknown scenarios {sorted(unknown)}")
         showcase = self.script.showcase
         if showcase.bank not in self.banks or showcase.scenario not in self.scenarios:
             raise ValueError("script.showcase names an unknown bank or scenario")

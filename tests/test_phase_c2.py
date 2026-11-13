@@ -437,7 +437,7 @@ def test_control_team_pack_has_the_resolution_summary_and_the_limits():
     assert "2% (low)" in text and "4% (central)" in text and "8% (high)" in text
     table = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_resolution_summary.csv"]))
     assert set(table["branch"]) == {"A", "B"} and set(table["level"]) == set(LEVELS)
-    assert len(files) == 18
+    assert len(files) == 29
 
 
 # ------------------------------------------------- CLI and app

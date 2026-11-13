@@ -34,6 +34,7 @@ from engine.resolution import (
 )
 from engine.schema import TAXONOMY, TAXONOMY_TITLES
 from engine.schema import PLAYERS
+from engine.setup import session_plans
 from engine.script import (
     MODE_LABELS,
     MODE_TEXT,
@@ -723,6 +724,18 @@ if script_tab.open:
             help="Injects that challenge the players. They change no figure of the run. The "
             "rating downgrade, which does, is switched on in the sidebar.",
         )
+        setup = config.script.setup
+        left, right = st.columns(2)
+        sessions = left.number_input(
+            "Session plan: number of sessions", min_value=1, max_value=20, step=1,
+            value=int(setup.sessions.value), key="script_sessions",
+            help="The simulated days are mapped to this many real sessions, with breaks at "
+            "the FoLtF determination and at the resolution decision where possible.",
+        )
+        session_hours = right.number_input(
+            "Hours per session", min_value=0.5, max_value=12.0, step=0.5,
+            value=float(setup.session_hours.value), key="script_session_hours",
+        )
         other_choices = choices_of(paths[other_key])
         branches = [("Path selected in the sidebar", choices)]
         if tuple(other_choices) != tuple(choices):
@@ -736,20 +749,42 @@ if script_tab.open:
             mode=mode,
             challenges=[*picked, *news_challenges],
             hostile=hostile,
+            bank_alias=setup.bank_alias,
+            background_key=scenario_key,
         )
         st.caption(MODE_TEXT[mode])
         with st.container(key="ctl_export"):
             st.download_button(
                 "Download the exercise pack (.zip)",
-                data=pack_to_zip(pack, config.script, config.decisions),
+                data=pack_to_zip(
+                    pack, config.script, config.decisions, int(sessions), float(session_hours)),
                 file_name=f"exercise_pack_{bank_key}_{scenario_key}.zip",
                 mime="application/zip",
             )
         st.caption(
-            "The zip holds the inject sheets of the four players, the main events list, "
-            "five role cards, the control team pack (.docx) and the data (.csv): main "
-            "events list, injects, decision points, decision log, daily tables."
+            "The zip holds three folders. players: mock bank dossier, rules of play and "
+            "feedback questionnaire, to share in advance. observers: one sheet per team. "
+            "control_team: SimEx Charter draft, session plan, main events list, inject "
+            "sheets, role cards, control team pack, feedback checklist, the table mapping "
+            f"each output to the Handbook, and the data (.csv). In the documents the bank is "
+            f"called {setup.bank_alias}."
         )
+        with st.expander("Session plan"):
+            for heading, plan in session_plans(
+                    pack, config.decisions, int(sessions), float(session_hours)):
+                if heading:
+                    st.markdown(f"**{heading}**")
+                st.dataframe(
+                    pd.DataFrame([
+                        {"Session": s.number,
+                         "Simulated days": f"{s.first_day} to {s.last_day}",
+                         "Injects": s.injects_text or str(s.injects),
+                         "Real minutes per simulated day": round(s.minutes_per_day),
+                         "Ends with": s.ends_with}
+                        for s in plan
+                    ]),
+                    hide_index=True, width="stretch",
+                )
         with st.expander(f"Main events list ({len(pack.events)} injects)"):
             st.caption(
                 "Every inject to a player: its trigger, who delivers it, its purpose "

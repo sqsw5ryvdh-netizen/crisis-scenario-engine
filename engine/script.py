@@ -40,6 +40,7 @@ from engine.resolution import (
     resolution_levels,
     summary_rows,
 )
+from engine.setup import Dossier, build_dossier
 from engine.schema import (
     ACTORS,
     CONTROL_TEAM,
@@ -260,6 +261,7 @@ class ExercisePack:
     hostile: bool = False  # hostile assumptions (EBA Handbook, par. 123)
     events: tuple[MainEvent, ...] = ()  # the main events list
     roles: tuple[RoleCard, ...] = ()
+    dossier: Optional[Dossier] = None  # the mock bank at day 0, shared with the players
 
 
 # --------------------------------------------------------------------------- helpers
@@ -1085,6 +1087,8 @@ def build_pack(
     mode: str = "dynamic",
     challenges: Optional[Sequence[str]] = None,
     hostile: bool = False,
+    bank_alias: Optional[str] = None,
+    background_key: str = "default",
 ) -> ExercisePack:
     """Build the exercise pack for one or two decision paths: (name, choices) each.
 
@@ -1094,7 +1098,11 @@ def build_pack(
 
     challenges: the challenge injects to play; None for the defaults, which depend on
     `hostile` (friendly or hostile assumptions).
+    bank_alias: a neutral name used for the bank in every document (EBA Handbook, par. 174).
+    background_key: which economic background of the config the dossier uses (a scenario key).
     """
+    if bank_alias:
+        bank = bank.model_copy(update={"name": bank_alias})
     if not 1 <= len(paths) <= 2:
         raise ValueError("an exercise pack takes one or two decision paths")
     if mode not in MODES:
@@ -1170,4 +1178,5 @@ def build_pack(
         events=events,
         roles=_role_cards(bank, params, scenario, decisions, script, branches, events,
                           writedown_level, active),
+        dossier=build_dossier(bank, branches[0].result.rows[0], script, background_key),
     )

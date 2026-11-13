@@ -97,6 +97,11 @@ def _stack(bank: Bank, row: dict) -> list[tuple[str, str, float]]:
     ]
 
 
+def liability_stack(bank: Bank, row: dict) -> list[tuple[str, str, float]]:
+    """The loss-absorbing layers above CET1 on a given day, in the order they are used."""
+    return _stack(bank, row)
+
+
 def _need(cet1: float, rwa: float, loans: float, requirement: float, writedown: float) -> float:
     """Amount to find beyond CET1: losses above it, plus what restores the requirement.
 

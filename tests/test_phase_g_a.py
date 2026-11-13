@@ -61,10 +61,12 @@ def test_the_word_facilitator_is_gone_from_everything_the_user_sees():
     for path in sources:
         text = path.read_text(encoding="utf-8").lower()
         assert "facilitator" not in text, path
-        assert "participant" not in text, path  # players, in the Handbook's words
+        # Players, in the Handbook's words; "Participant behaviour" is its own name for a
+        # category of the rules of play (par. 155).
+        assert "participant" not in text.replace("participant behaviour", ""), path
     files = pack_files(showcase_pack(), SCRIPT, DECISIONS)
     assert "control_team/control_team_pack.docx" in files
-    assert all(name.startswith("control_team/") for name in files)
+    assert all(name.startswith(("players/", "observers/", "control_team/")) for name in files)
     for name, content in files.items():
         if name.endswith(".docx"):
             assert "facilitator" not in docx_text(content).lower(), name

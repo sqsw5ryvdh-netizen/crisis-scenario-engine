@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from typing import Optional
 
 import pandas as pd
 from docx import Document
@@ -18,6 +19,14 @@ from engine.decisions import OUTCOME_LABELS, actor_label, decision_log_rows, sco
 from engine.resolution import breakpoint_text, summary_rows
 from engine.schema import PLAYERS, ROLES, WEEKDAYS, DecisionsConfig, ScriptConfig
 from engine.script import MODE_TEXT, ExercisePack, Inject, MainEvent, sheet_id
+from engine.setup import (
+    DRAFT_MARK,
+    charter_rows,
+    observer_sheet,
+    resolve_sessions,
+    rules_of_play,
+    session_plans,
+)
 
 KNOWN_LIMITS = (
     "Legal loss-absorption thresholds are not modelled: the model does not test any minimum "
@@ -383,6 +392,255 @@ def role_card_docx(pack: ExercisePack, script: ScriptConfig, role: str) -> bytes
     return _save(document)
 
 
+# --------------------------------------------------------------------------- set-up documents
+
+DRAFT_NOTE = (
+    "Draft generated for the design team. Everything pre-filled here is a proposal to edit, "
+    "not a decision."
+)
+
+
+def dossier_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
+    """The mock bank dossier, shared with the players in advance (EBA Handbook, par. 167-168,
+    177): the bank as it stands before the exercise starts. No real names."""
+    dossier = pack.dossier
+    document = _start(f"Mock bank dossier: {dossier.bank_name}", dossier.country, script, pack.mode)
+    document.add_paragraph(
+        f"For the players, before the exercise. {dossier.bank_name} and {dossier.country} are "
+        "fictitious; the figures are the bank's position before the first simulated day. "
+        f"Amounts in {dossier.unit}."
+    )
+    document.add_heading("Business model", level=1)
+    document.add_paragraph(f"{dossier.bank_name}: {dossier.business_model}")
+    document.add_heading("Economic background", level=1)
+    document.add_paragraph(dossier.background)
+    document.add_heading("Simplified balance sheet", level=1)
+    total = sum(amount for _, amount in dossier.assets)
+    _table(document, ["Assets", dossier.unit],
+           [[label, f"{amount:.2f}"] for label, amount in dossier.assets]
+           + [["Total assets", f"{total:.2f}"]])
+    document.add_paragraph()
+    _table(document, ["Liabilities and capital", dossier.unit],
+           [[label, f"{amount:.2f}"] for label, amount in dossier.liabilities]
+           + [["Total liabilities and capital",
+               f"{sum(amount for _, amount in dossier.liabilities):.2f}"]])
+    document.add_heading("Liability stack", level=1)
+    document.add_paragraph(
+        "The layers that would absorb losses, in the order used in this exercise, which is "
+        "not a statement of law. Covered deposits are protected."
+    )
+    _table(document, ["Layer", dossier.unit],
+           [[label, f"{amount:.2f}"] for label, amount in dossier.stack])
+    document.add_heading("Prudential indicators", level=1)
+    _table(document, ["Indicator", "Value"], [list(row) for row in dossier.indicators])
+    _glossary(document, script)
+    return _save(document)
+
+
+def rules_of_play_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
+    """Rules of play, shared with players and observers in advance (par. 149-155)."""
+    document = _start("Rules of play", pack.bank_name, script, pack.mode)
+    document.add_paragraph().add_run(DRAFT_NOTE).bold = True
+    document.add_paragraph(
+        "For players and observers, before the exercise. The rules say what you may and may "
+        "not do in the exercise. They are fixed once it starts."
+    )
+    for category, rules in rules_of_play(pack, script):
+        document.add_heading(category, level=1)
+        for rule in rules:
+            document.add_paragraph(rule, style="List Number")
+    document.add_heading("To be completed by the design team", level=1)
+    for line in ("Channel for exchanges between players:", "How to reach the control team:",
+                 "Dates and times of the sessions:", "Confidentiality and data protection:"):
+        _labelled(document, line[:-1], "_______________________")
+    return _save(document)
+
+
+def questionnaire_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
+    """Feedback questionnaire: the questions of Annex 7 of the Handbook, as written."""
+    document = _start("Feedback questionnaire", pack.bank_name, script, pack.mode)
+    document.add_paragraph().add_run(DRAFT_NOTE).bold = True
+    document.add_paragraph(
+        "The questions below are quoted from Annex 7 of the EBA Handbook on simulation "
+        "exercises for resolution authorities (EBA/REP/2025/20). Select and adapt them."
+    )
+    document.add_paragraph(script.setup.questionnaire_intro)
+    for question in script.setup.questionnaire:
+        document.add_paragraph(question, style="List Number")
+    return _save(document)
+
+
+def observer_sheet_docx(pack: ExercisePack, script: ScriptConfig, player: str) -> bytes:
+    """What the observer of one team tracks (par. 101). Observers see ahead of the players."""
+    sheet = observer_sheet(pack, script, player)
+    document = _start(f"Observer sheet: {sheet.name}", pack.bank_name, script, pack.mode)
+    document.add_paragraph().add_run(DRAFT_NOTE).bold = True
+    document.add_paragraph(
+        "For the observer who follows this team. Do not show it to the players: it lists "
+        "decisions before they open. Record facts and times; do not judge."
+    )
+    _labelled(document, "Observer", "_______________________")
+    document.add_heading("Decisions of this team", level=1)
+    if sheet.decisions:
+        header = ["Opens", "Decision", "Decide by", "Should consult", "Should inform",
+                  "Real time taken", "Consulted and informed? Notes"]
+        rows = [[*row[1:], "", ""] for row in sheet.decisions]
+        if len(pack.branches) > 1:
+            header, rows = ["Branch", *header], [[row[0], *rest] for row, rest in zip(sheet.decisions, rows)]
+        _table(document, header, rows)
+    else:
+        document.add_paragraph("No decision opens to this team in this pack.")
+    document.add_heading("Information this team should pass on", level=1)
+    if sheet.relays:
+        header = ["By", "What", "To", "Passed on in time?", "Fallback inject used?"]
+        rows = [[*row[1:], "", ""] for row in sheet.relays]
+        if len(pack.branches) > 1:
+            header, rows = ["Branch", *header], [[row[0], *rest] for row, rest in zip(sheet.relays, rows)]
+        _table(document, header, rows)
+    else:
+        document.add_paragraph(
+            "Nothing is planned as this team's task to pass on"
+            + (": the exercise is linear and the control team delivers every notification."
+               if pack.mode == "linear" else ".")
+        )
+    document.add_heading("Also track", level=1)
+    _table(document, ["What to track", "Observations"], [[track, ""] for track in sheet.tracks])
+    document.add_heading("Other notes", level=1)
+    for _ in range(4):
+        document.add_paragraph("_" * 80)
+    return _save(document)
+
+
+def charter_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
+    """SimEx Charter draft, on the template of Annex 1 of the Handbook."""
+    document = _start("SimEx Charter (draft)", f"{pack.bank_name} - {pack.scenario_name}",
+                      script, pack.mode)
+    document.add_paragraph().add_run(DRAFT_NOTE).bold = True
+    document.add_paragraph(
+        "The elements and their descriptions are those of Annex 1 of the EBA Handbook "
+        f"(EBA/REP/2025/20). Cells that start with [{DRAFT_MARK}] were pre-filled from the "
+        "scenario; empty cells are for the design team."
+    )
+    _table(document, ["Element", "Description", "Concrete elements"],
+           [list(row) for row in charter_rows(pack, script)])
+    return _save(document)
+
+
+def session_plan_docx(
+    pack: ExercisePack, script: ScriptConfig, decisions: DecisionsConfig,
+    sessions: int, hours: float,
+) -> bytes:
+    """Simulated days mapped to real sessions (par. 139-143)."""
+    document = _start("Session plan", f"{pack.bank_name} - {pack.scenario_name}", script,
+                      pack.mode, landscape=True)
+    document.add_paragraph().add_run(DRAFT_NOTE).bold = True
+    document.add_paragraph(
+        f"Input: {sessions} session{'s' if sessions > 1 else ''} of {hours:g} hours. Simulated "
+        "time is accelerated: the last column gives the real time available for one "
+        "simulated day, which the players should be told in advance. Breaks are placed at "
+        "the FoLtF determination and at the resolution decision where the path has them "
+        "and the number of sessions allows; the control team uses them to adjust the "
+        "injects of the next session to what the players decided."
+    )
+    for heading, plan in session_plans(pack, decisions, sessions, hours):
+        if heading:
+            document.add_heading(heading, level=1)
+        _table(
+            document,
+            ["Session", "Real length", "Simulated days", "Injects", "Real time per simulated day",
+             "Ends with", "Date and time (to fill in)"],
+            [[str(s.number), f"{hours:g} h",
+              day_label(pack, s.first_day) if s.first_day == s.last_day
+              else f"{day_label(pack, s.first_day)} to {day_label(pack, s.last_day)}",
+              s.injects_text or str(s.injects), f"{s.minutes_per_day:.0f} min", s.ends_with, ""]
+             for s in plan],
+        )
+        if len(plan) < sessions:
+            document.add_paragraph(
+                f"Only {len(plan)} of the {sessions} sessions are used: the path is too "
+                "short for more."
+            )
+        breaks = {s.ends_with for s in plan}
+        result = next(b for b in pack.branches
+                      if not heading.startswith("Branch") or b.label == heading[-1]).result
+        if result.foltf_day is None:
+            document.add_paragraph(
+                "No FoLtF is declared on this path, so the breaks are planned pauses only.")
+        elif "Break at the resolution decision" not in breaks or \
+                "Break at the FoLtF determination" not in breaks:
+            document.add_paragraph(
+                "There are too few sessions for a break at both the FoLtF determination and "
+                "the resolution decision.")
+    return _save(document)
+
+
+# The checklist of Annex 8 of the Handbook, as a blank form.
+FEEDBACK_CHECKLIST = (
+    ("i) Decision on the timeline of feedback collection", ["Item", "Decision"],
+     [["Date(s) and time for debrief", ""],
+      ["Date(s) and time for feedback collection at the end of the exercise", ""]]),
+    ("ii) Decision on the type of feedback",
+     ["Type of feedback", "Description", "Present in the simulation (Yes/No)"],
+     [["Hot Debriefing", "Occurs shortly after simulations", ""],
+      ["Cold Debriefing", "Occurs after at least 24 hours", ""]]),
+    ("iii) Decision on tools/platforms used to collect feedback",
+     ["Ref", "Method", "Comments for implementation"],
+     [["A", "Surveys/feedback and evaluation forms", ""],
+      ["B", "Live session with the controllers", ""],
+      ["C", "Automated monitoring tools", ""],
+      ["D", "Direct observations from the control team", ""]]),
+    ("iv) Decision on person(s) involved in collecting feedback",
+     ["Task", "Person(s) responsible for delivery", "Deadline to prepare"],
+     [["Preparation of the feedback templates", "", ""],
+      ["Feedback collection process", "", ""],
+      ["Handling and processing feedback", "", ""]]),
+)
+
+
+def feedback_checklist_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
+    """Checklist for feedback collection: Annex 8 of the Handbook, left blank."""
+    document = _start("Checklist for feedback collection", pack.bank_name, script, pack.mode)
+    document.add_paragraph(
+        "Blank form on the template of Annex 8 of the EBA Handbook (EBA/REP/2025/20), for "
+        "the design team to fill in. Nothing is pre-filled."
+    )
+    for heading, header, rows in FEEDBACK_CHECKLIST:
+        document.add_heading(heading, level=1)
+        _table(document, header, rows)
+    return _save(document)
+
+
+# Each output of the pack and the part of the EBA Handbook (EBA/REP/2025/20) it serves.
+HANDBOOK_MAPPING = (
+    ("players/mock_bank_dossier.docx", "Mock bank dossier, shared in advance", "par. 167-168, 177; no recognisable institution: par. 174"),
+    ("players/rules_of_play.docx", "Rules of play, by the Handbook's three categories", "par. 149-155; stakeholders played: par. 200"),
+    ("players/feedback_questionnaire.docx", "Feedback questionnaire", "Annex 7; par. 216-217"),
+    ("observers/observer_sheet_<player>.docx", "What each observer tracks, per team", "par. 99-101"),
+    ("control_team/simex_charter_draft.docx", "SimEx Charter draft", "Annex 1 (Section 2.4)"),
+    ("control_team/session_plan.docx", "Simulated days mapped to sessions, accelerated time, breaks", "par. 139-143, 195-196"),
+    ("control_team/main_events_list.docx", "Every inject: trigger, purpose, expected response, deliverer", "par. 128, 133, 177"),
+    ("control_team/inject_sheets/<player>.docx", "Injects per player, within its information set", "par. 128-132, 191-192"),
+    ("control_team/role_cards/<role>.docx", "Stakeholders played by the control team", "par. 132, 198-200"),
+    ("control_team/control_team_pack.docx", "Simulation operational timeline, decision points, debrief questions", "par. 139-141; scenario type: par. 115"),
+    ("Challenge injects and friendly or hostile assumptions", "Second valuation, interested buyer, buyers withdrawing", "par. 123, 129, 192"),
+    ("Linear or dynamic exercise, course corrections", "Stated on every document", "par. 124-127"),
+    ("control_team/feedback_checklist.docx", "Checklist for feedback collection, blank", "Annex 8"),
+    ("SIMULATION label on every document and data file", "Header, footer and title; file names of data", "par. 174"),
+)
+
+
+def handbook_mapping_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
+    document = _start("Outputs and the Handbook", pack.bank_name, script, pack.mode, landscape=True)
+    document.add_paragraph(
+        "Each output of this pack and the paragraph or annex of the EBA Handbook on "
+        "simulation exercises for resolution authorities (EBA/REP/2025/20) it serves. The "
+        "mapping is this project's reading of the Handbook."
+    )
+    _table(document, ["Output", "What it is", "EBA Handbook"],
+           [list(row) for row in HANDBOOK_MAPPING])
+    return _save(document)
+
+
 def _timeline_rows(pack: ExercisePack, branch) -> list[list[str]]:
     events: dict[int, list[str]] = {}
     for event in branch.result.events:
@@ -666,10 +924,29 @@ def _csv(frame: pd.DataFrame) -> bytes:
 
 
 def pack_files(
-    pack: ExercisePack, script: ScriptConfig, decisions: DecisionsConfig
+    pack: ExercisePack, script: ScriptConfig, decisions: DecisionsConfig,
+    sessions: Optional[int] = None, session_hours: Optional[float] = None,
 ) -> dict[str, bytes]:
-    """All files of the pack: path inside the zip -> content."""
+    """All files of the pack: path inside the zip -> content.
+
+    players/: shared with the players in advance. observers/: for the observers only.
+    control_team/: everything else. sessions, session_hours: inputs of the session plan
+    (default: config).
+    """
+    sessions, session_hours = resolve_sessions(script, sessions, session_hours)
     files = {
+        "players/mock_bank_dossier.docx": dossier_docx(pack, script),
+        "players/rules_of_play.docx": rules_of_play_docx(pack, script),
+        "players/feedback_questionnaire.docx": questionnaire_docx(pack, script),
+    }
+    for player in PLAYERS:
+        files[f"observers/observer_sheet_{player}.docx"] = observer_sheet_docx(pack, script, player)
+    files["control_team/simex_charter_draft.docx"] = charter_docx(pack, script)
+    files["control_team/session_plan.docx"] = session_plan_docx(
+        pack, script, decisions, sessions, session_hours)
+    files["control_team/feedback_checklist.docx"] = feedback_checklist_docx(pack, script)
+    files["control_team/handbook_mapping.docx"] = handbook_mapping_docx(pack, script)
+    files |= {
         f"control_team/inject_sheets/{actor}.docx": inject_sheets_docx(pack, script, actor)
         for actor in PLAYERS
     }
@@ -701,10 +978,14 @@ def pack_files(
     return files
 
 
-def pack_to_zip(pack: ExercisePack, script: ScriptConfig, decisions: DecisionsConfig) -> bytes:
+def pack_to_zip(
+    pack: ExercisePack, script: ScriptConfig, decisions: DecisionsConfig,
+    sessions: Optional[int] = None, session_hours: Optional[float] = None,
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for name, content in pack_files(pack, script, decisions).items():
+        files = pack_files(pack, script, decisions, sessions, session_hours)
+        for name, content in files.items():
             # A fixed timestamp keeps the zip identical for identical inputs.
             archive.writestr(zipfile.ZipInfo(name, date_time=(2028, 1, 1, 0, 0, 0)), content)
     return buffer.getvalue()

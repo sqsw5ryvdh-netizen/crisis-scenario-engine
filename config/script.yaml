@@ -402,6 +402,152 @@ roles:
       foltf: One of you tells the resolution authority that it is interested and names an indicative price. You ask for data access and for the timetable.
       resolution: You confirm or withdraw as the main events list says. If you withdraw, you give no reason beyond the uncertainty on the losses.
 
+# Set-up documents (SPEC_V3 G7, G8, G10). Drafts for the design team to edit: every text
+# here is pre-filled wording of this project, except where it says it quotes the Handbook
+# (EBA/REP/2025/20). The texts carry no figures; the engine adds them.
+setup:
+  # Neutral names used in every document of the pack, so that nothing points to a real
+  # institution or country (EBA Handbook, par. 174).
+  bank_alias: Bank A
+  country_alias: Country A
+  # Session plan: default number and length of the real sessions. Inputs of the design team.
+  sessions:
+    value: 3
+    unit: sessions
+    source: ASSUMPTION
+  session_hours:
+    value: 3
+    unit: hours per session
+    source: ASSUMPTION
+  # Short economic background for the dossier, as it stands before the exercise starts.
+  # One per scenario; `default` is used for any other. Placeholders: {bank_name}, {country}.
+  background:
+    default: >-
+      The economy of {country} is growing slowly and its banking system is profitable and
+      well capitalised on average. Funding markets work normally. {bank_name} is one of
+      several banks of its kind in {country}.
+    fast_run: >-
+      The economy of {country} is growing slowly and its banking system is profitable on
+      average. Most customers of {bank_name} bank online and can move money within minutes.
+      Rumours about individual banks have circulated on social media in recent months.
+    slow_burn: >-
+      Growth in {country} has slowed and analysts have questioned the business model of
+      some banks for several quarters. {bank_name} has had a run of weak results and its
+      share price has underperformed its peers.
+    cyber_outage: >-
+      The economy of {country} is stable. Banks have invested heavily in digital channels,
+      and supervisors have asked them to test their resilience to technology failures.
+      {bank_name} depends on a small number of technology providers for its payments.
+    geopolitical: >-
+      {country} is an open economy with close trade and financial links abroad. Tensions in
+      a neighbouring region have risen in recent weeks and markets are nervous. {bank_name}
+      relies in part on market funding and has some exposure to the region.
+    loss_revealed: >-
+      After several years of fast credit growth in {country}, loan quality has started to
+      weaken in some sectors. {bank_name} grew faster than its peers, and its auditors are
+      reviewing part of its loan book.
+  # SimEx Charter. Elements and descriptions quote Annex 1 of the Handbook. `draft` is this
+  # project's pre-filled proposal for the third column, "Concrete elements"; empty = left
+  # blank for the design team. Placeholders: {bank_name}, {taxonomy}, {mode}, {decisions},
+  # {challenges}.
+  charter:
+    - element: Project Manager
+      description: Person responsible for the execution of the project
+    - element: Sponsor(s)
+      description: Person(s) responsible for approving the simulation
+    - element: Main Goal
+      description: As stated in the original enunciation
+      draft: >-
+        Exercise the coordination between the competent authority, the resolution authority,
+        the central bank and the deposit guarantee scheme in the failure of {bank_name}, in
+        a crisis of this type: {taxonomy}.
+    - element: Tentative Deadline
+      description: When the simulation is scheduled to be carried out
+    - element: Expected Key Outcome(s)
+      description: Identified outcomes expected from the simulation
+      draft: >-
+        A decision by the players, taken in time and with the consultations expected, on
+        each of: {decisions}. A record of who knew what, and when.
+    - element: Elements in Scope (Must-Have)
+      description: Identification of elements in scope that are a must-have
+      draft: >-
+        The stages from the first recovery indicator to the application of a resolution
+        tool or the wind-up of {bank_name}. Exchange of information between the four
+        authorities. The decisions listed above.
+    - element: Elements in Scope (Nice to Have)
+      description: Elements in scope but only nice to have
+      draft: >-
+        Communication with the media and the finance ministry. Challenge injects:
+        {challenges}.
+    - element: Elements Not in Scope (Constraints)
+      description: Identification of elements not in scope
+      draft: >-
+        Legal loss-absorption thresholds. The execution of the tool and the period after the
+        bank reopens. Other banks and contagion. Cross-border coordination. The drafting of
+        legal acts.
+    - element: Type of SimEx that best fits the goals
+      description: ""
+      draft: >-
+        To be chosen by the design team. As generated, the exercise is {mode}.
+    - element: References
+      description: References to any existing materials or tools (e.g. the procedure that should be tested)
+      draft: >-
+        EBA Handbook on simulation exercises for resolution authorities. The procedures to
+        be tested are to be added by the design team.
+  # Rules of play, by the three categories of the Handbook (par. 155). Draft rules of this
+  # project; the engine adds the rules that depend on the pack (calendar, type of exercise,
+  # stakeholders played by the control team).
+  rules:
+    scenario:
+      - "{bank_name} and {country} are fictitious. Do not look for a real institution behind them."
+      - "You know only what is in the dossier and on the sheets you are handed. Other players may hold more recent figures than you: ask them."
+      - "Simulated time runs faster than real time. The control team announces each new simulated day and each new phase."
+      - "The legal framework is the one you would apply in a real case. Where the exercise simplifies it, the control team says so."
+    play:
+      - "Decisions are given to the control team in writing, with the time and the names of those who were consulted."
+      - "A decision takes effect on the simulated day after it is taken."
+      - "Use the agreed channel for every exchange with other players. Mark every message and document \"SIMULATION\"."
+      - "To contact a stakeholder who is not a player, ask the control team. It plays that stakeholder or tells you that it is out of scope."
+      - "Do not contact anyone outside the exercise in the name of the exercise."
+    behaviour:
+      - "Act in your real role and follow your real procedures as far as the exercise allows."
+      - "Your actions and omissions in the exercise are not used for any kind of professional evaluation."
+      - "The rules do not change once the exercise has started. The control team steps in if a rule is broken."
+      - "Observers watch and take notes. They do not answer questions and do not take part."
+      - "What you learn in the exercise about other authorities' procedures stays among those who took part."
+  # What an observer is asked to track for the team it follows (par. 101), besides the
+  # decisions and notifications of that team, which the engine lists.
+  observer_tracks:
+    - "The time the team needs from receiving an inject to acting on it."
+    - "The number of exchanges with each other team, and who started them."
+    - "Whether the team asks for information it lacks, and whom it asks."
+    - "Whether the team keeps a record of its decisions and of the figures behind them."
+    - "Moments where the team is stuck, and what gets it moving again."
+  # Feedback questionnaire: quoted from Annex 7 of the Handbook, in its order.
+  questionnaire_intro: >-
+    Suggestions for feedback questions. Some of the questions employ a 1–5 scale where 1 =
+    poor and 5 = excellent
+  questionnaire:
+    - "Did the SimEx meet its aims and objectives? [1–5]"
+    - "Did the SimEx design encourage useful discussions and learnings? [1–5]"
+    - "What are the most important lessons you learned from these exercises?"
+    - "Was the SimEx well facilitated? [1–5]"
+    - "Do you have any suggestions for running SimEx more smoothly and efficiently next time?"
+    - "Did the pre-briefing materials provide sufficient information for participation in the SimEx? [1–5]"
+    - "What additional materials did you have to obtain to progress in the SimEx?"
+    - "Do you think the simulation was well organised and managed? [1–5]"
+    - "Please give an example of one element you would change to improve the management of the SimEx."
+    - "Were there any assets (resolution plan, bail-in playbook, etc.) that were particularly useful in the simulation? Were there any resources that were not used at all in the simulation? Which one(s)?"
+    - "How clear was your role and what was expected of you? [1–5]"
+    - "Did you find you had tasks to complete that you didn’t anticipate?"
+    - "Were the time limits set realistic to implement? [1–5]"
+    - "Which tasks or actions should have had a longer timeframe to complete?"
+    - "Were you at all times aware of the overall progress of the simulation? [1–5]"
+    - "Were there some elements or processes in the simulation that worked particularly well? Which ones were they?"
+    - "Were there any elements or processes in the simulation that worked poorly, felt unnecessary or were difficult to apply? Which ones were they?"
+    - "What are the three key learnings from SimEx, in your view?"
+    - "If you could change three things for the next simulation, which would these be?"
+
 # One question per decision, put to the actor that decides.
 questions:
   public_statement: What would you say in public, and what would you leave out? Who needs to see the statement before it goes out?

@@ -86,7 +86,21 @@ actor had when it decided. Decisions and their effects are defined in
 The Exercise script tab builds a pack for two branches: the path selected in the sidebar
 and a second one. The players are the four authorities (competent authority, resolution
 authority, central bank, deposit guarantee scheme). Bank management and the other
-stakeholders are played by the control team. The zip contains, all for the control team:
+stakeholders are played by the control team. In the documents the bank is called "Bank A",
+in "Country A". The zip has three folders.
+
+`players/`, to share in advance: the **mock bank dossier** (business model, balance sheet,
+liability stack, prudential indicators, economic background), the **rules of play** and the
+**feedback questionnaire** (the questions of Annex 7 of the EBA Handbook).
+
+`observers/`: one **observer sheet** per team, with the decisions and notifications to track.
+
+`control_team/`:
+
+- **SimEx Charter draft** on the Handbook's Annex 1 template, **session plan** (simulated
+  days mapped to real sessions, with breaks at the FoLtF determination and at the resolution
+  decision; inputs: number and length of sessions), a blank **feedback checklist** (Annex 8)
+  and a **table mapping each output to the Handbook** paragraph or annex it serves.
 
 - **inject sheets for each player**, one inject per page, handed out when the trigger is met.
   Each shows only what that player knows, when it knows it: the resolution authority hears

@@ -91,11 +91,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="challenge inject of config/script.yaml to play; repeat for several. Replaces "
         "the defaults. 'rating_downgrade' adds a news shock to the run",
     )
+    parser.add_argument(
+        "--sessions", type=int, help="session plan: number of real sessions (default: config)"
+    )
+    parser.add_argument(
+        "--session-hours", type=float, help="session plan: hours per session (default: config)"
+    )
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
     parser.add_argument(
         "--export-dir", type=Path,
-        help="write the exercise pack here: inject sheets, main events list, role cards, "
-        "control team pack, data",
+        help="write the exercise pack here: dossier and rules of play for the players, "
+        "observer sheets, and for the control team the charter draft, session plan, main "
+        "events list, inject sheets, role cards, control team pack and data",
     )
     parser.add_argument(
         "--compare-path",
@@ -233,14 +240,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             mode=args.mode,
             challenges=challenges,
             hostile=args.hostile,
+            bank_alias=config.script.setup.bank_alias,
+            background_key=args.scenario,
         )
+        if (args.sessions is not None and args.sessions < 1) or (
+                args.session_hours is not None and args.session_hours <= 0):
+            parser.error("--sessions must be at least 1 and --session-hours positive")
+        inputs = (args.sessions, args.session_hours)
         stem = f"exercise_pack_{args.bank}_{args.scenario}"
         args.export_dir.mkdir(parents=True, exist_ok=True)
         archive = args.export_dir / f"{stem}.zip"
-        archive.write_bytes(pack_to_zip(pack, config.script, config.decisions))
+        archive.write_bytes(pack_to_zip(pack, config.script, config.decisions, *inputs))
         print()
         print(f"Exported {archive}")
-        for name, content in pack_files(pack, config.script, config.decisions).items():
+        for name, content in pack_files(pack, config.script, config.decisions, *inputs).items():
             target = args.export_dir / stem / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)

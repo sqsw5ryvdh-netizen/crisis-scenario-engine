@@ -562,6 +562,11 @@ def test_pack_holds_one_document_per_actor_the_control_team_pack_and_the_data(ac
         [f"control_team/inject_sheets/{actor}.docx" for actor in PLAYERS]
         + [f"control_team/role_cards/{role}.docx" for role in ROLES]
         + ["control_team/control_team_pack.docx", "control_team/main_events_list.docx"]
+        + [f"players/{name}.docx" for name in (
+            "mock_bank_dossier", "rules_of_play", "feedback_questionnaire")]
+        + [f"observers/observer_sheet_{actor}.docx" for actor in PLAYERS]
+        + [f"control_team/{name}.docx" for name in (
+            "simex_charter_draft", "session_plan", "feedback_checklist", "handbook_mapping")]
         + [f"control_team/data/SIMULATION_{name}.csv" for name in (
             "injects", "decision_points", "decision_log", "resolution_summary", "main_events_list",
             "daily_table_branch_A", "daily_table_branch_B")]
@@ -585,7 +590,7 @@ def test_zip_is_complete_and_reproducible(acceptance):
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert archive.testzip() is None
         names = archive.namelist()
-    assert len(names) == 18 and "control_team/control_team_pack.docx" in names
+    assert len(names) == 29 and "control_team/control_team_pack.docx" in names
     with zipfile.ZipFile(io.BytesIO(again)) as archive:
         assert archive.namelist() == names
         csv = archive.read("control_team/data/SIMULATION_injects.csv")
@@ -599,7 +604,7 @@ def test_a_pack_can_be_built_for_every_bank_and_scenario(bank, scenario):
     pack = pack_for(bank, scenario, "act_late", "support_package")
     files = pack_files(pack, SCRIPT, DECISIONS)
     # No resolution on either branch here, so no resolution summary file.
-    assert len(files) == 17 and all(len(content) > 0 for content in files.values())
+    assert len(files) == 28 and all(len(content) > 0 for content in files.values())
     for document in pack.documents:
         assert document.shared[0].kind == "opening"
 
