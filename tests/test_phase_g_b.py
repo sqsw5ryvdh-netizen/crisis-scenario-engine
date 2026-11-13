@@ -501,6 +501,9 @@ def test_app_offers_assumptions_challenges_and_the_main_events_list():
         SCRIPT.actors[player] for player in PLAYERS]
     at.radio(key="script_assumptions").set_value("Hostile").run(timeout=90)
     assert not at.exception
-    assert at.multiselect(key="script_challenges_hostile").value == QUIET
+    assert at.multiselect(key="script_challenges_hostile").value == list(
+        active_challenges(SCRIPT, hostile=True))
+    assert set(at.multiselect(key="script_challenges_hostile").options) == {
+        SCRIPT.challenges[key].title for key in QUIET}
     at.checkbox(key="challenge_rating_downgrade").check().run(timeout=90)
     assert not at.exception

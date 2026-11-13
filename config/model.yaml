@@ -285,6 +285,21 @@ rating_downgrade_panic_shock:
   value: 0.10
   unit: added to the panic input
   source: ASSUMPTION
+# Share of the wholesale funding that would have been rolled over and is no longer renewed,
+# from the day of the downgrade on.
+rating_downgrade_rollover_cut:
+  value: 0.25
+  unit: share of rolled-over wholesale funding
+  source: ASSUMPTION
+# "Share and bond prices fall" inject (off by default): same two effects, smaller.
+market_prices_fall_panic_shock:
+  value: 0.08
+  unit: added to the panic input
+  source: ASSUMPTION
+market_prices_fall_rollover_cut:
+  value: 0.15
+  unit: share of rolled-over wholesale funding
+  source: ASSUMPTION
 
 # "Stabilised" at the end of a run: on each of the last `stabilised_days` days the flag
 # conditions do not hold, the liquidity buffer is positive and the daily outflow is below

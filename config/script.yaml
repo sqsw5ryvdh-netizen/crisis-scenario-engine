@@ -249,8 +249,10 @@ resolution:
 # Challenge injects (EBA Handbook, par. 123, 129 and 192). Each can be switched on or off by
 # the control team. default: part of the pack unless switched off. hostile: added when the
 # assumptions are set to hostile. Placed `offset_days` after the anchor, like ambient injects.
-# Only the rating downgrade changes the run (a news event with a panic shock, set in
-# config/model.yaml); the others change no figure of the simulation.
+# Two of them change the run: the rating downgrade and the fall in share and bond prices are
+# news events with a panic shock and a cut in wholesale roll-over, both set in
+# config/model.yaml under the challenge's name. The others change no figure of the simulation.
+# The last four follow examples of Annex 3 of the Handbook.
 challenges:
   buyer_interest:
     title: A potential buyer shows interest
@@ -330,6 +332,71 @@ challenges:
       A rating agency downgrades {bank_name} and keeps it under review for a further cut
     expected: >-
       Expect faster outflows. Reassess the liquidity position and the decisions open to you.
+  market_prices_fall:
+    title: Share and bond prices fall
+    sender: Public media
+    role: media
+    recipients: [competent_authority, resolution_authority, central_bank, deposit_guarantee_scheme]
+    anchor: recovery
+    offset_days: 1
+    time: "09:00"
+    effect: panic_shock
+    text: >-
+      The share price of {bank_name} falls sharply at the opening and the prices of its bonds
+      drop; trading in the shares is halted for a short time
+    expected: >-
+      Expect market funding to become harder to renew. Reassess the liquidity position and
+      agree a public line.
+  # The next three change who knows what, not the figures.
+  # public: it reaches every listed player, also one not yet informed about the bank.
+  executives_press_conference:
+    title: Bank executives address the media
+    sender: Public media
+    role: bank_management
+    recipients: [competent_authority, resolution_authority, central_bank, deposit_guarantee_scheme]
+    anchor: recovery
+    offset_days: 1
+    time: "17:00"
+    public: true
+    text: >-
+      At a press conference called at short notice, the chief executive of {bank_name} says
+      that the bank has breached an internal liquidity limit, that the situation is under
+      control and that the authorities are fully informed. No authority was told that the
+      press conference would take place.
+    expected: >-
+      Establish among the authorities who knew what. Agree whether and how to respond in
+      public. Ask the bank for an explanation.
+  # incomplete / misdirected: applied to the bank's notification of the anchor stage. If both
+  # fall on the same day, the first one listed here is played.
+  incomplete_notification:
+    title: The bank's notification is incomplete
+    sender: Bank management
+    role: bank_management
+    recipients: [competent_authority]
+    anchor: likely_to_fail
+    offset_days: 0
+    time: "18:30"
+    effect: incomplete
+    text: >-
+      The message from the bank is incomplete. Part of the figures behind the notification is
+      missing, and the bank's contact cannot be reached for the moment.
+    expected: >-
+      Ask the bank for the missing figures before deciding. Tell the other authorities what is
+      known and what is missing.
+  misdirected_notification:
+    title: The bank's notification reaches the wrong authority
+    sender: Bank management
+    role: bank_management
+    recipients: [central_bank]
+    anchor: early_intervention
+    offset_days: 0
+    time: "18:30"
+    effect: misdirected
+    text: >-
+      This notification from the bank was addressed to the competent authority and has
+      reached you instead. The competent authority has not received it.
+    expected: >-
+      Pass the notification on to the competent authority at once and tell the bank.
 
 # Simulated stakeholders: the roles the control team plays (EBA Handbook, par. 132 and 198).
 # Each has a role card. The texts carry no figures; the engine adds the figures a role holds.

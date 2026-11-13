@@ -429,3 +429,23 @@ Three parameters were added to `config/model.yaml`, all `ASSUMPTION`. None is ba
 
 The role cards, the expected responses and the mapping of each inject to a purpose (EBA
 Handbook, paragraph 128) are draft wording by this project, not taken from the Handbook.
+
+## 15. Changes in the checkpoint before phase E (Annex 3 challenge injects)
+
+Three parameters were added to `config/model.yaml`, all `ASSUMPTION`, and a news event can
+now carry a `rollover_cut`. None is based on data.
+
+- `rating_downgrade_rollover_cut` (0.25) and `market_prices_fall_rollover_cut` (0.15): from
+  the day of the event on, this share of the wholesale funding that would have been rolled
+  over is no longer renewed. The cut multiplies the roll-over fraction and stays until the
+  end of the run. It is not included in the projected outflows behind the "likely to fail"
+  warning.
+- `market_prices_fall_panic_shock` (0.08): the news shock of the "share and bond prices fall"
+  inject, a little below the rating downgrade's 0.10.
+
+In the showcase (retail bank, geopolitical shock) wholesale funding is already closed, so
+the roll-over cut has no effect there and only the panic shock acts. The fall in prices,
+placed one day after the recovery breach, brings early intervention and the "likely to fail"
+warning forward from day 6 to day 3 and raises deposits lost on the bail-in path from 32.7%
+to 35.8%. Both injects are off by default.
+

@@ -198,6 +198,9 @@ class NewsEvent(StrictModel):
     panic_shock: float
     # A loss revealed that day, as a share of the loan book: it is written off against CET1.
     loan_loss_share: float = Field(default=0.0, ge=0, lt=1)
+    # From that day on, this share of the wholesale funding that would have been rolled over
+    # is no longer renewed (a rating downgrade, a fall in the bank's market prices).
+    rollover_cut: float = Field(default=0.0, ge=0, le=1)
 
 
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -389,6 +392,9 @@ class ModelParams(StrictModel):
     hostile_liquidity_uplift: Parameter
     buyer_indicative_bid_share: Parameter
     rating_downgrade_panic_shock: Parameter
+    rating_downgrade_rollover_cut: Parameter
+    market_prices_fall_panic_shock: Parameter
+    market_prices_fall_rollover_cut: Parameter
     # Thresholds of the "stabilised" outcome at the end of a run.
     stabilised_days: Parameter
     stabilised_outflow_share: Parameter
@@ -848,7 +854,11 @@ class ResolutionInject(StrictModel):
 # second_valuation: carries the resolution figures at the write-down level above the one the
 #   players were first given; indicative_bid: carries an assumed bid; panic_shock: is a public
 #   news event with a panic shock, added to the scenario (the only one that changes the run).
-CHALLENGE_EFFECTS = ("second_valuation", "indicative_bid", "panic_shock")
+# incomplete: the bank's notification of the anchor stage reaches the competent authority
+#   with part of its figures missing; misdirected: it reaches the listed recipient instead of
+#   the competent authority. Both change who knows what, not the figures of the run.
+CHALLENGE_EFFECTS = ("second_valuation", "indicative_bid", "panic_shock", "incomplete",
+                     "misdirected")
 
 
 class ChallengeInject(StrictModel):
@@ -867,10 +877,21 @@ class ChallengeInject(StrictModel):
     hostile: bool = False  # added when the assumptions are set to hostile
     figures: list[str] = Field(default_factory=list)
     effect: Optional[str] = None
+    # Public: it reaches every listed recipient, also one not yet informed about the bank.
+    public: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> "ChallengeInject":
         what = f"challenge '{self.title}'"
+        if self.effect in ("incomplete", "misdirected"):
+            if self.anchor not in DECISION_STAGES or self.offset_days != 0:
+                raise ValueError(f"{what}: it must be anchored to a stage, with no offset")
+            wrong = self.recipients != ["competent_authority"]
+            if self.effect == "incomplete" and wrong:
+                raise ValueError(f"{what}: the recipient is the competent authority")
+            if self.effect == "misdirected" and (
+                    len(self.recipients) != 1 or not wrong):
+                raise ValueError(f"{what}: name the one player that receives it instead")
         unknown = set(self.recipients) - set(PLAYERS)
         if unknown or not self.recipients:
             raise ValueError(f"{what}: recipients must be players")
@@ -1077,6 +1098,11 @@ class Config(StrictModel):
         for name in ("questions", "coordination"):
             if set(getattr(self.script, name)) != decisions:
                 raise ValueError(f"script.{name} must cover exactly the decisions {sorted(decisions)}")
+        for key, item in self.script.challenges.items():
+            if item.effect == "panic_shock":
+                for name in (f"{key}_panic_shock", f"{key}_rollover_cut"):
+                    if name not in ModelParams.model_fields:
+                        raise ValueError(f"challenge '{key}' needs the model parameter '{name}'")
         unknown = set(self.script.setup.background) - set(self.scenarios) - {"default"}
         if unknown:
             raise ValueError(f"script.setup.background names unknown scenarios {sorted(unknown)}")

@@ -81,6 +81,8 @@ one: chart, outcome scorecard side by side, and the decision log with the figure
 actor had when it decided. Decisions and their effects are defined in
 `config/decisions.yaml`.
 
+What the tool does not cover is listed on one page in `docs/LIMITS.md`.
+
 ## Exercise script
 
 The Exercise script tab builds a pack for two branches: the path selected in the sidebar
@@ -117,8 +119,11 @@ liability stack, prudential indicators, economic background), the **rules of pla
 - **challenge injects**, switched on or off: an interested buyer, a second and worse
   valuation, and under hostile assumptions all buyers withdrawing and a challenge from
   creditors, with the liquidity need at reopening raised by an assumed share. None of
-  these changes the run. A rating downgrade (sidebar, off by default) does: it adds a
-  news shock. Ambient injects (press, politics, other authorities) add pressure without
+  these changes the run. Two market shocks (sidebar, off by default) do: a rating
+  downgrade and a fall in share and bond prices, each a news shock with a cut in wholesale
+  roll-over. Three more, also off by default, change who knows what and not the figures:
+  bank executives address the media, and the bank's notification arrives incomplete or
+  at the wrong authority. Ambient injects (press, politics, other authorities) add pressure without
   changing any figure.
 - **a control team pack** with full information: both branches day by day, every decision
   point and where each option leads, the expected coordination steps and debrief questions.

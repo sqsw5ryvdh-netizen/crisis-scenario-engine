@@ -1,40 +1,37 @@
 # STATUS
 
-Last completed: **SPEC_V3 phase I - Closing report** (2026-11-13). Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, SPEC_V3 phases G and H. The must-have phases of SPEC_V3 (G, H, I) are done. Next: phase E (reverse mode and design by objective) or F (cross-border group), to be planned first.
+Last completed: **Checkpoint before phase E** (2026-11-13): screenshots, Annex 3 challenge injects, `docs/LIMITS.md`. Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, SPEC_V3 phases G, H and I (the must-have phases). Next: phase E (reverse mode and design by objective), planned, waiting for approval.
 
-## What was built in phase I
-- **`engine/report.py`**, pure: the draft closing report of a live exercise, from its log, or of a pre-planned path.
-- **Generated, facts only:** overview; timeline of decisions with the figures the deciding player held at its own reporting delay and the real minutes taken; coordination steps the script expected, each "recorded as done" or "not recorded as done"; conduct of the exercise (injects, ad hoc injects, fallbacks, pauses, undos).
-- **Counterfactuals from the engine:** for each key decision, every other option on the same day, and the same option one day earlier and one day later, with everything else as recorded; plus the pre-planned path. Each gives the difference from what happened.
-- **Left to people, marked "[To be completed - not generated]":** observers' notes, feedback received, lessons learned, and a blank recommendations table (assigned to, priority, to be actioned by).
-- **Consultation** is now recorded with each decision on the console ("Consulted first").
-- Output: Word document and two data files, all labelled SIMULATION. Console: "Download the draft closing report". CLI: `--report-dir` on `engine.live_run` and on `engine.run`.
+## What was done in the checkpoint
+- **Screenshots** in `docs/screenshots/`, seven, replacing the four old ones: simulation page (showcase), scenario designer, branch comparison, resolution summary, control console mid-exercise, a player page, first page of the closing report.
+- **Challenge injects after Annex 3 of the Handbook**, all off by default:
+  - (a) rating downgrade and (b) fall in share and bond prices: a news event with a panic shock and a cut in wholesale roll-over, each set in `config/model.yaml` (ASSUMPTION). A news event can now carry a `rollover_cut`.
+  - (c) bank executives address the media without telling the authorities: reaches every player, including those not yet informed about the bank.
+  - (d) the bank's notification arrives incomplete (the competent authority gets only the first figure) or at the wrong player (the central bank gets it; the competent authority's copy becomes a fallback inject).
+  - (c) and (d) change who knows what and leave the daily table identical.
+- **`docs/LIMITS.md`**, one page: what the model, the resolution block, the script, the live mode and the report do not cover, and the Annex 2 areas outside the tool.
+- Console: the simulated clock is no longer cut off.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Report of the scripted run: `.venv/bin/python -m engine.live_run --report-dir exports/report`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Market shocks: sidebar of the Simulation page, or `--challenge market_prices_fall` | Information challenges: Exercise script tab, "Challenge injects"
 
-## Acceptance output (closing report of the phase H scripted run)
-17 counterfactual lines, 16 computed and 1 stated as not possible (daily reporting one day before the decision opened). Against what happened (liquidation on day 13, 32.7% of deposits lost):
+## Output (showcase: retail bank, geopolitical shock)
+| Challenge | Stages (recovery / early intervention / likely to fail) | Deposits lost, bail-in path | Outcome |
+|---|---|---|---|
+| none | day 2 / 6 / 6 | 32.7% | bail-in, day 13 |
+| rating downgrade (day 7) | day 2 / 6 / 6 | 33.8% | bail-in, day 13 |
+| share and bond prices fall (day 3) | day 2 / 3 / 3 | 35.8% | bail-in, day 13 |
+| both | day 2 / 3 / 3 | 36.0% | bail-in, day 13 |
 
-| Change of one decision | Difference from what happened |
-|---|---|
-| Resolution tool: bail-in instead of liquidation, day 12 | outcome "Resolution: bail-in" |
-| Resolution tool: liquidation one day later, day 13 | last day 14; deposits lost 34.8% |
-| FoLtF: wait instead of declare, day 10 | no FoLtF; still under stress on day 30; deposits lost 39.0%; losses booked 1.85 instead of 0.74 EUR bn |
-| FoLtF: declare one day earlier, day 9 | FoLtF in effect on day 10 instead of day 11 |
-| ELA: grant up to the available collateral instead of no decision, day 2 | no FoLtF (its condition is no longer met); outcome "Stabilised"; last day 30; deposits lost 39.0%; ELA outstanding 2.60 EUR bn |
-| Every decision as pre-planned | outcome "Resolution: bail-in" |
-
-Coordination: 8 consultations expected, 5 recorded as done; 9 notifications to pass on, 1 recorded as passed on by the player and 8 delivered by the control team's fallback inject. Real duration 130 minutes, of which 46 paused.
-- `pytest -q` -> `1371 passed`, including "no generated sentence judges the players" (16 words rejected in the document, the counterfactual lines and the config texts) and "counterfactuals change one decision and match the engine".
+- `pytest -q` -> `1383 passed`, including the balance sheet identity and "higher severity never defaults later" with the market shocks on, and "information challenges change no figure of the run".
 
 ## Deviations and choices
-- "Not recorded as done" means only that the control team made no record; the report never says "not done".
-- A counterfactual keeps the other decisions on their recorded days; one that depends on the changed decision is taken at the first close at which its condition holds.
-- The report can be drawn up before the end; it then says so and gives the outcome expected on the path at that point.
-- A report for a pre-planned path has no real times and no coordination steps; it is not part of the exercise pack.
-- The control console is still not behind a code (open from phase H).
+- In the showcase the roll-over cut has no effect: the geopolitical scenario already closes wholesale funding. A test shows it raises wholesale outflows in other scenarios.
+- The fall in prices is strong in the showcase: it brings the "likely to fail" warning forward by three days. The size is an assumption in `config/model.yaml`.
+- The roll-over cut is not in the projected outflows behind the "likely to fail" warning.
+- If an incomplete and a misdirected notification fall on the same day, only the first listed in the config is played.
+- The closing-report screenshot is the first page as rendered by macOS Quick Look, not by Word.
 
 ## Open questions
-- Counterfactuals use the central parameters only. Should each also show the low to high range?
-- From earlier phases: who relays to the deposit guarantee scheme; console behind a code; wording needs a practitioner's review; screenshots are out of date.
+- Should (c) and (d) be part of the hostile assumptions by default?
+- From earlier phases: who relays to the deposit guarantee scheme; console behind a code; counterfactual ranges; wording needs a practitioner's review.

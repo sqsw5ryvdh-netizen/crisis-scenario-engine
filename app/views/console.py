@@ -184,7 +184,7 @@ started = datetime.fromisoformat(state.entries[0].real_time)
 
 st.subheader(f"{setup.name}: {setup.bank.name}, {setup.scenario.name}")
 st.caption(MODE_TEXT[setup.mode])
-metrics = st.columns(5)
+metrics = st.columns([2.2, 1, 1.3, 1.5, 1.3])
 metrics[0].metric("Simulated time", when(state.day, state.time, weekday))
 metrics[1].metric("Status", status)
 metrics[2].metric("Stage of the bank", str(row["status"]).replace("_", " ").replace("failed", "payments default"))

@@ -1069,6 +1069,7 @@ def simulate(
     if failure_day is None:
         take_decisions(0)
 
+    rollover_scale = 1.0  # lowered by news events that close part of the funding market
     while failure_day is None and tool is None and day < horizon:
         day += 1
 
@@ -1088,6 +1089,7 @@ def simulate(
         for event in scenario.news_events:
             if event.day == day:
                 shock += event.panic_shock
+                rollover_scale *= 1.0 - event.rollover_cut
                 events.append(Event(day, "news", event.headline))
                 if event.loan_loss_share > 0:
                     state, written_off = book_loan_loss(state, event.loan_loss_share)
@@ -1096,7 +1098,7 @@ def simulate(
         x = next_x(state, shock)
         loss_seen = loss_share(state)
         multiplier = panic_multiplier(x, p)
-        rollover = rollover_fraction(x, p)
+        rollover = rollover_fraction(x, p) * rollover_scale
         rates = runoff_rates(x, severity, p)
         requests = tuple(
             runnable * rate for runnable, rate in zip(state.runnable_deposits, rates)

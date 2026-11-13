@@ -373,7 +373,8 @@ def scenario_with_challenges(
         return scenario
     base = simulate(bank, params, scenario, decisions, ())
     stage_days = {e.kind: e.day for e in base.events if e.kind in DECISION_STAGES}
-    shock = params.with_overrides(scenario.overrides).rating_downgrade_panic_shock.value
+    resolved = params.with_overrides(scenario.overrides)
+    keys = {id(item): key for key, item in script.challenges.items()}
     extra = []
     for item in items:
         anchor = stage_days.get(item.anchor)
@@ -382,8 +383,11 @@ def scenario_with_challenges(
             continue
         if any(event.headline == headline for event in scenario.news_events):
             continue  # already added: calling this twice changes nothing
+        key = keys[id(item)]  # its two effects are the model parameters named after it
         extra.append(
-            NewsEvent(day=anchor + item.offset_days, headline=headline, panic_shock=shock)
+            NewsEvent(day=anchor + item.offset_days, headline=headline,
+                      panic_shock=getattr(resolved, f"{key}_panic_shock").value,
+                      rollover_cut=getattr(resolved, f"{key}_rollover_cut").value)
         )
     events = sorted([*scenario.news_events, *extra], key=lambda event: event.day)
     return scenario.model_copy(update={"news_events": events})
@@ -554,6 +558,12 @@ def build_branch(
         if hostile and levels is not None else None
     )
     names = script.actors
+    # Challenges on the bank's own notification: day of the stage -> the challenge played.
+    tampered: dict[int, object] = {}
+    for key in challenges:
+        item = script.challenges[key]
+        if item.effect in ("incomplete", "misdirected") and item.anchor in stage_days:
+            tampered.setdefault(stage_days[item.anchor], item)
     media = script.roles["media"].name
     # Challenge injects that are public news: headline -> expected response.
     public_challenges = {
@@ -637,15 +647,49 @@ def build_branch(
             else:
                 delivery = {"expected": script.expected["stage_relayed"],
                             **passed_on("competent_authority", day, clock)}
+            text = "\n".join(
+                script.texts[event.kind].format(bank_name=bank.name, sender=sender)
+                for event in stage_events)
+            shown = tuple(merged.values())
+            challenge = tampered.get(day) if actor == "competent_authority" else None
+            if challenge is not None and challenge.effect == "incomplete":
+                # Only the first figure arrives; the rest has to be asked for.
+                shown = shown[:1]
+                text += "\n" + challenge.text.format(bank_name=bank.name)
+                delivery.update(purpose="challenge", expected=challenge.expected)
+            elif challenge is not None:  # misdirected: it went to another player
+                holder = challenge.recipients[0]
+                clock = "stage_relay_others"
+                delivery = {"expected": delivery["expected"], **passed_on(holder, day, clock)}
+                if linear:
+                    delivery["purpose"] = "control"
             out.append(
-                make(actor, day, highest, clock, sender,
-                     "\n".join(
-                         script.texts[event.kind].format(bank_name=bank.name, sender=sender)
-                         for event in stage_events),
+                make(actor, day, highest, clock, sender, text,
                      with_figures=False,
-                     headline=tuple(merged.values()),
+                     headline=shown,
                      stages=tuple(event.kind for event in stage_events),
                      **delivery)
+            )
+        for day, challenge in tampered.items():
+            if challenge.effect != "misdirected" or actor not in challenge.recipients:
+                continue
+            # The bank's notification, with its figures, reaches this player instead.
+            bank_name = names["bank_management"]
+            stage_events = [e for e in result.events if e.kind in DECISION_STAGES and e.day == day]
+            merged = {f.name: f for event in stage_events for f in trigger_figures(event)}
+            out.append(
+                make(actor, day, "challenge", "stage_relay", bank_name,
+                     "\n".join([
+                         challenge.text.format(bank_name=bank.name),
+                         *(script.texts[event.kind].format(bank_name=bank.name, sender=bank_name)
+                           for event in stage_events)]),
+                     with_figures=False, title=challenge.title,
+                     headline=tuple(merged.values()),
+                     stages=tuple(event.kind for event in stage_events),
+                     purpose="challenge", delivered_by=role_name(challenge.role),
+                     expected=challenge.expected,
+                     trigger=f"Milestone: {_TITLES[stage_events[-1].kind].lower()} "
+                             f"(close of day {day})")
             )
         for record in result.decision_log:
             option = decisions.decisions[record.decision].options[record.option]
@@ -758,15 +802,16 @@ def build_branch(
                 )
         for key in challenges:
             item = script.challenges[key]
-            if item.effect == "panic_shock" or actor not in item.recipients:
-                continue  # a public news event is already in the scenario
+            if item.effect in ("panic_shock", "incomplete", "misdirected") \
+                    or actor not in item.recipients:
+                continue  # a news event is in the scenario; the other two are handled above
             anchor = stage_days.get(item.anchor) if item.anchor in DECISION_STAGES else (
                 result.foltf_day
             )
             if anchor is None or anchor + item.offset_days > end_day:
                 continue
             day = anchor + item.offset_days
-            if not is_informed(actor, day):
+            if not item.public and not is_informed(actor, day):
                 continue
             estimates: tuple[Figure, ...] = ()
             if item.effect == "second_valuation":
