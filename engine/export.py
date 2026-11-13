@@ -1,5 +1,6 @@
-"""Export of the exercise pack (SPEC_V2 phase D): one Word document per actor, the
-control team pack and the data files, as bytes and as one zip.
+"""Export of the exercise pack (SPEC_V2 phase D, SPEC_V3 phase G): the inject sheets of each
+player, the main events list, the role cards, the control team pack and the data files, as
+bytes and as one zip.
 
 Nothing here reads or writes files; the caller (CLI or app) does.
 """
@@ -11,18 +12,23 @@ import zipfile
 
 import pandas as pd
 from docx import Document
+from docx.enum.section import WD_ORIENT
 
 from engine.decisions import OUTCOME_LABELS, actor_label, decision_log_rows, scorecard_rows
 from engine.resolution import breakpoint_text, summary_rows
-from engine.schema import WEEKDAYS, DecisionsConfig, ScriptConfig
-from engine.script import MODE_TEXT, ExercisePack, Inject
+from engine.schema import PLAYERS, ROLES, WEEKDAYS, DecisionsConfig, ScriptConfig
+from engine.script import MODE_TEXT, ExercisePack, Inject, MainEvent, sheet_id
 
 KNOWN_LIMITS = (
     "Legal loss-absorption thresholds are not modelled: the model does not test any minimum "
     "amount of losses that shareholders and creditors must bear before other funds are used.",
     "The resolution figures rest on an assumed write-down of the loan book (low, central or "
     "high) and on the order of loss absorption used in this model, which is not a statement "
-    "of law. Sale of business is computed like bail-in; no buyer or price is modelled.",
+    "of law. Sale of business is computed like bail-in. The price in the \"interested "
+    "buyer\" inject is an assumption and changes no other figure.",
+    "Challenge injects change no figure of the run, except the rating downgrade, which adds "
+    "a news shock. Hostile assumptions raise the liquidity need at reopening by an assumed "
+    "share; they do not change the run either.",
     "The model stops when the tool is applied: there is no run after the bank reopens.",
     "Days are whole days. Times of day are labels, and the outflow by time block is an "
     "allocation of the daily figure, not a simulation of the day.",
@@ -30,6 +36,8 @@ KNOWN_LIMITS = (
     "from cash only and the rest waits for Monday. Nobody defaults on a weekend.",
     "All parameters behind the figures are assumptions unless the Assumptions page says "
     "otherwise. Ambient injects change no figure.",
+    "Role cards and expected responses describe a plausible behaviour for the exercise, not "
+    "what any real institution would do.",
     "The wording, coordination steps and deadlines are a draft without legal references.",
 )
 
@@ -79,8 +87,13 @@ SIMULATION_LABEL = "SIMULATION"
 SIMULATION_NOTICE = "SIMULATION - exercise material, not a real event"
 
 
-def _start(title: str, subtitle: str, script: ScriptConfig, mode: str = ""):
+def _start(title: str, subtitle: str, script: ScriptConfig, mode: str = "",
+           landscape: bool = False):
     document = Document()
+    if landscape:
+        for section in document.sections:
+            section.orientation = WD_ORIENT.LANDSCAPE
+            section.page_width, section.page_height = section.page_height, section.page_width
     document.core_properties.title = f"{SIMULATION_LABEL} - {title}"
     document.core_properties.author = "Crisis Scenario Engine"
     for section in document.sections:
@@ -111,7 +124,9 @@ def _glossary(document, script: ScriptConfig) -> None:
         _labelled(document, entry.term, entry.definition)
 
 
-def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
+def _write_inject(document, pack: ExercisePack, inject: Inject, sheet: str = "") -> None:
+    if sheet:
+        document.add_paragraph().add_run(f"Sheet {sheet}").bold = True
     document.add_heading(f"{day_label(pack, inject.day)}, {inject.time} - {inject.title}", level=3)
     _labelled(document, "From", inject.sender)
     for line in inject.text.split("\n"):
@@ -181,38 +196,190 @@ def _write_inject(document, pack: ExercisePack, inject: Inject) -> None:
         )
 
 
-def actor_docx(pack: ExercisePack, script: ScriptConfig, actor: str) -> bytes:
-    """The document handed to one actor: only what that actor knows, when it knows it."""
+PURPOSE_LABELS = {"advance": "Advance", "challenge": "Challenge", "control": "Control"}
+
+
+def _section_label(pack: ExercisePack, section: str) -> str:
+    if section:
+        return f"Branch {section}"
+    return "All branches" if len(pack.branches) > 1 else ""
+
+
+def _recipients(script: ScriptConfig, event: MainEvent) -> str:
+    return ", ".join(script.actors[actor] for actor in event.recipients)
+
+
+def inject_sheets_docx(pack: ExercisePack, script: ScriptConfig, actor: str) -> bytes:
+    """The inject sheets of one recipient: one inject per page, only what it knows by then.
+
+    Kept by the control team, which hands each sheet out when its trigger is met. The first
+    page is for the control team; nothing on the other pages goes beyond the recipient's own
+    information.
+    """
     document_data = next(d for d in pack.documents if d.actor == actor)
     document = _start(
-        f"Exercise script: {document_data.name}", pack.bank_name, script, pack.mode
+        f"Inject sheets: {document_data.name}", pack.bank_name, script, pack.mode
     )
+    document.add_heading("For the control team", level=1)
+    document.add_paragraph(
+        "Do not hand out this page. Each page after it is one inject for this recipient. Hand "
+        "a sheet out only when its trigger on the main events list is met. A fallback sheet "
+        "is handed out only if the player who should have passed the information on has not."
+    )
+    numbers = {
+        sheet: event for event in pack.events for sheet in event.sheets
+    }
+    sections = [("", document_data.shared)] + [
+        (title.split()[1], injects) for title, injects in document_data.branches
+    ]
+    index_rows = []
+    for section, injects in sections:
+        for position, inject in enumerate(injects):
+            sheet = sheet_id(actor, section, position)
+            event = numbers.get(sheet)
+            index_rows.append([
+                sheet,
+                _section_label(pack, section),
+                f"{day_label(pack, inject.day)}, {inject.time}",
+                inject.title,
+                "" if event is None else str(event.number),
+                PURPOSE_LABELS[inject.purpose] + (" (fallback)" if inject.fallback else ""),
+            ])
+    _table(document, ["Sheet", "Branch", "When", "Inject", "No. on the main events list",
+                      "Purpose"], index_rows)
 
-    document.add_heading("What you see", level=1)
+    document.add_page_break()
+    document.add_heading("Briefing sheet: what you see", level=1)
     for sentence in document_data.information:
         document.add_paragraph(sentence, style="List Bullet")
     document.add_paragraph(
         "Times of day are labels. The figures you are given are the only figures you have: "
         "other players may hold more recent ones."
     )
-
-    heading = "Shared part" if document_data.branches else "Injects"
-    document.add_heading(heading, level=1)
-    if document_data.branches:
-        document.add_paragraph(
-            "These injects are the same whichever way the exercise continues. The control team "
-            "tells you which branch to read afterwards."
-        )
-    for inject in document_data.shared:
-        _write_inject(document, pack, inject)
-    for title, injects in document_data.branches:
-        document.add_page_break()
-        document.add_heading(title, level=1)
-        if not injects:
+    for section, injects in sections:
+        if section and not injects:
+            document.add_page_break()
+            document.add_heading(f"Branch {section}", level=1)
             document.add_paragraph("You receive nothing further on this branch.")
-        for inject in injects:
-            _write_inject(document, pack, inject)
+        for position, inject in enumerate(injects):
+            document.add_page_break()
+            if section:
+                document.add_paragraph(f"Branch {section}")
+            _write_inject(document, pack, inject, sheet_id(actor, section, position))
     _glossary(document, script)
+    return _save(document)
+
+
+def main_events_rows(pack: ExercisePack, script: ScriptConfig) -> list[dict[str, str]]:
+    """The main events list as rows: one inject per line, in order."""
+    return [
+        {
+            "No.": str(event.number),
+            "Branch": _section_label(pack, event.section),
+            "Day": day_label(pack, event.day),
+            "Time": event.time,
+            "Trigger": event.trigger,
+            "Inject": event.title,
+            "To": _recipients(script, event),
+            "Delivered by": event.delivered_by,
+            "Purpose": PURPOSE_LABELS[event.purpose] + (" (fallback)" if event.fallback else ""),
+            "Expected response": event.expected,
+            "Sheets": ", ".join(event.sheets),
+        }
+        for event in pack.events
+    ]
+
+
+def main_events_list_docx(pack: ExercisePack, script: ScriptConfig) -> bytes:
+    """The control team's main events list (EBA Handbook, par. 133 and 177)."""
+    document = _start(
+        "Main events list", f"{pack.bank_name} - {pack.scenario_name}", script, pack.mode,
+        landscape=True,
+    )
+    document.add_paragraph(
+        "For the control team and the observers only. Every inject to a player is one line: "
+        "when it is triggered, who delivers it, what it is for and the response to look for. "
+        "Purpose: an inject advances the simulation, challenges the players, or controls the "
+        "course of the exercise."
+    )
+    if pack.mode == "dynamic":
+        document.add_paragraph(
+            "What one player should tell another is not handed out by the control team. It is "
+            "listed as the expected response of the player who holds the information. The "
+            "lines marked \"fallback\" are used only if that player has not passed it on in time."
+        )
+    else:
+        document.add_paragraph(
+            "The exercise is linear. A \"course correction\" line is used only if the players "
+            "decide otherwise than the fixed path: the control team then tells them on which "
+            "basis to continue and notes the deviation for the debrief."
+        )
+    rows = main_events_rows(pack, script)
+    header = [name for name in rows[0] if name != "Branch" or len(pack.branches) > 1]
+    _table(document, header, [[row[name] for name in header] for row in rows])
+    document.add_heading("Counts", level=1)
+    counts = {
+        purpose: sum(1 for event in pack.events if event.purpose == purpose)
+        for purpose in PURPOSE_LABELS
+    }
+    _table(document, ["Purpose", "Injects"],
+           [[PURPOSE_LABELS[purpose], str(count)] for purpose, count in counts.items()])
+    return _save(document)
+
+
+def role_card_docx(pack: ExercisePack, script: ScriptConfig, role: str) -> bytes:
+    """The card of one stakeholder the control team plays: knows, wants, says, with figures."""
+    card = next(c for c in pack.roles if c.role == role)
+    document = _start(f"Role card: {card.name}", pack.bank_name, script, pack.mode)
+    document.add_paragraph(
+        "For the member of the control team who plays this role. Stay in the role when a "
+        "player contacts you. Give no figure that is not on this card."
+    )
+    _labelled(document, "Played by", "_______________________")
+    document.add_heading("What you know", level=1)
+    for line in card.knows:
+        document.add_paragraph(line, style="List Bullet")
+    document.add_heading("What you want", level=1)
+    for line in card.wants:
+        document.add_paragraph(line, style="List Bullet")
+    document.add_heading("What you say, and when", level=1)
+    _table(document, ["Moment", "When in this exercise", "What you say"],
+           [list(line) for line in card.lines])
+    document.add_heading("Figures you hold", level=1)
+    if not card.figures:
+        document.add_paragraph(
+            "None. You hold no figure of the bank. If a player gives you one, you may repeat it."
+        )
+    for heading, rows in card.figures:
+        document.add_heading(heading, level=2)
+        _table(document, ["Figure", "Value"], [list(row) for row in rows])
+    document.add_heading("Injects you deliver", level=1)
+    if not card.delivers:
+        document.add_paragraph("None in this pack. You answer if a player contacts you.")
+    else:
+        _table(
+            document,
+            ["No.", "Branch", "When", "Inject", "To", "Sheets"],
+            [[str(event.number), _section_label(pack, event.section),
+              f"{day_label(pack, event.day)}, {event.time}", event.title,
+              _recipients(script, event), ", ".join(event.sheets)]
+             for event in card.delivers],
+        )
+    if role == "bank_management":
+        bank = next(d for d in pack.documents if d.actor == role)
+        document.add_page_break()
+        document.add_heading("What you see, day by day", level=1)
+        for sentence in bank.information:
+            document.add_paragraph(sentence, style="List Bullet")
+        for inject in bank.shared:
+            _write_inject(document, pack, inject)
+        for title, injects in bank.branches:
+            document.add_page_break()
+            document.add_heading(title, level=1)
+            if not injects:
+                document.add_paragraph("You see nothing further on this branch.")
+            for inject in injects:
+                _write_inject(document, pack, inject)
     return _save(document)
 
 
@@ -247,8 +414,9 @@ def control_team_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decis
     if pack.taxonomy:
         document.add_paragraph(f"Scenario type (EBA Handbook, par. 115): {pack.taxonomy}.")
     document.add_paragraph(
-        "For the control team only. Players' documents show each actor's own figures, "
-        "delayed as set out below, and branch codes without outcomes."
+        "For the control team only. The players are the four authorities. Their inject sheets "
+        "show each player's own figures, delayed as set out below, and branch codes without "
+        "outcomes. Bank management and the other stakeholders are played by the control team."
     )
 
     document.add_heading("Overview", level=1)
@@ -367,6 +535,39 @@ def control_team_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decis
             for key, definition in decisions.decisions.items()
         ],
     )
+    document.add_heading("Simulated stakeholders", level=1)
+    document.add_paragraph(
+        "The control team plays these roles; each has a role card. Decide before the "
+        "exercise who plays which, and who answers if a player contacts a stakeholder that "
+        "is not on this list. Tell the players in advance which stakeholders are played."
+    )
+    _table(
+        document,
+        ["Role", "Played by", "Injects it delivers"],
+        [[card.name, "", str(len(card.delivers))] for card in pack.roles],
+    )
+    document.add_heading("Challenge injects and assumptions", level=1)
+    document.add_paragraph(
+        "Assumptions: " + (
+            "hostile. The liquidity need at reopening is shown with a negative market "
+            "reaction as well, and the hostile challenge injects are in the pack."
+            if pack.hostile else
+            "friendly. No challenge from creditors, no buyer withdrawing, no negative market "
+            "reaction at reopening."
+        )
+    )
+    _table(
+        document,
+        ["Challenge inject", "In this pack", "Changes the figures of the run"],
+        [[item.title, "yes" if key in pack.challenges else "no",
+          "yes: a news shock" if item.effect == "panic_shock" else "no"]
+         for key, item in script.challenges.items()],
+    )
+    if "second_valuation" in script.challenges and pack.writedown_level == "high":
+        document.add_paragraph(
+            "The players already get the high write-down, so there is no worse valuation to "
+            "deliver: the updated valuation is not played."
+        )
     document.add_heading("Ambient injects", level=1)
     if not pack.ambient_on:
         document.add_paragraph("Ambient injects are switched off in this pack.")
@@ -379,7 +580,7 @@ def control_team_docx(pack: ExercisePack, script: ScriptConfig, decisions: Decis
             [f"Branch {branch.label}", day_label(pack, inject.day), inject.time, inject.title,
              script.actors[actor]]
             for branch in pack.branches
-            for actor, injects in branch.injects.items()
+            for actor, injects in branch.injects.items() if actor in PLAYERS
             for inject in injects if inject.kind == "ambient"
         ]
         _table(document, ["Branch", "Day", "Time", "Inject", "Recipient"], rows)
@@ -421,6 +622,11 @@ def injects_frame(pack: ExercisePack) -> pd.DataFrame:
                         "resolution_estimates": "; ".join(f.text for f in inject.resolution),
                         "report_as_of_day": inject.figures[0].as_of_day if inject.figures else "",
                         "report": "; ".join(figure.text for figure in inject.figures),
+                        "purpose": inject.purpose,
+                        "fallback": inject.fallback,
+                        "trigger": inject.trigger,
+                        "delivered_by": inject.delivered_by,
+                        "expected_response": inject.expected,
                         "decision": due.name if due else "",
                         "options": "; ".join(f"{o.branch_code} {o.name}" for o in due.options)
                         if due else "",
@@ -464,10 +670,15 @@ def pack_files(
 ) -> dict[str, bytes]:
     """All files of the pack: path inside the zip -> content."""
     files = {
-        f"players/{document.actor}.docx": actor_docx(pack, script, document.actor)
-        for document in pack.documents
+        f"control_team/inject_sheets/{actor}.docx": inject_sheets_docx(pack, script, actor)
+        for actor in PLAYERS
     }
+    files["control_team/main_events_list.docx"] = main_events_list_docx(pack, script)
+    for role in ROLES:
+        files[f"control_team/role_cards/{role}.docx"] = role_card_docx(pack, script, role)
     files["control_team/control_team_pack.docx"] = control_team_docx(pack, script, decisions)
+    files["control_team/data/SIMULATION_main_events_list.csv"] = _csv(
+        pd.DataFrame(main_events_rows(pack, script)))
     files["control_team/data/SIMULATION_injects.csv"] = _csv(injects_frame(pack))
     files["control_team/data/SIMULATION_decision_points.csv"] = _csv(decision_points_frame(pack))
     log_rows = [

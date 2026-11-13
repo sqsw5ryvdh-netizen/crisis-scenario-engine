@@ -401,7 +401,7 @@ def test_players_documents_use_the_chosen_write_down_level():
     assert (central.writedown_level, high.writedown_level) == ("central", "high")
     files_central = pack_files(central, SCRIPT, DECISIONS)
     files_high = pack_files(high, SCRIPT, DECISIONS)
-    name = "players/resolution_authority.docx"
+    name = "control_team/inject_sheets/resolution_authority.docx"
     assert "4% (central)" in docx_text(files_central[name])
     text = docx_text(files_high[name])
     assert "8% (high)" in text and "4% (central)" not in text
@@ -437,7 +437,7 @@ def test_control_team_pack_has_the_resolution_summary_and_the_limits():
     assert "2% (low)" in text and "4% (central)" in text and "8% (high)" in text
     table = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_resolution_summary.csv"]))
     assert set(table["branch"]) == {"A", "B"} and set(table["level"]) == set(LEVELS)
-    assert len(files) == 12
+    assert len(files) == 18
 
 
 # ------------------------------------------------- CLI and app

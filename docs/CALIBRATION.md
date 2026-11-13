@@ -410,3 +410,22 @@ Outcome of the 16 bank and scenario pairs after these changes: `docs/STATUS.md`.
 - **Taxonomy labels** of the scenarios follow paragraph 115 of the EBA Handbook
   (EBA/REP/2025/20). Placing a scenario in the taxonomy is a judgement of this project, not
   data.
+
+## 14. Changes in SPEC_V3 phase G, part b
+
+Three parameters were added to `config/model.yaml`, all `ASSUMPTION`. None is based on data.
+
+- `hostile_liquidity_uplift` (0.25): under hostile assumptions the liquidity need at
+  reopening is shown a second time, raised by this share, for a negative market reaction.
+  It is computed after the run and changes none of its figures.
+- `buyer_indicative_bid_share` (0.5): the non-binding price named in the "interested buyer"
+  inject, as a share of the CET1 the bank holds once it is back at its capital requirement
+  after the valuation write-down. A round number; it changes no other figure, and sale of
+  business is still computed like bail-in.
+- `rating_downgrade_panic_shock` (0.10): the news shock of the "rating downgrade" challenge
+  inject, the same size as the shock of the day the loss is revealed in section 13. The
+  inject is off by default and is the only challenge inject that changes the run. It is
+  placed one day after early intervention on the path without decisions.
+
+The role cards, the expected responses and the mapping of each inject to a purpose (EBA
+Handbook, paragraph 128) are draft wording by this project, not taken from the Handbook.

@@ -84,20 +84,31 @@ actor had when it decided. Decisions and their effects are defined in
 ## Exercise script
 
 The Exercise script tab builds a pack for two branches: the path selected in the sidebar
-and a second one. The zip contains:
+and a second one. The players are the four authorities (competent authority, resolution
+authority, central bank, deposit guarantee scheme). Bank management and the other
+stakeholders are played by the control team. The zip contains, all for the control team:
 
-- **one Word document per actor** (competent authority, resolution authority, central bank,
-  deposit guarantee scheme, bank management). Each shows only what that actor knows, when it
-  knows it: the resolution authority hears nothing before early intervention and then gets
-  figures that are one day old; the bank's management has same-day figures. A stage change
-  is notified the same day, from the bank to the competent authority and from there to the
-  others, with the figures that triggered it. A decision inject gives the options with a
-  branch code, a deadline on that branch, and who to consult and inform. A shared part
-  comes first, then one section per branch. Ambient injects (press, politics, other
-  authorities) add pressure without changing any figure; they can be switched off.
+- **inject sheets for each player**, one inject per page, handed out when the trigger is met.
+  Each shows only what that player knows, when it knows it: the resolution authority hears
+  nothing before early intervention and then gets figures that are one day old. A decision
+  inject gives the options with a branch code, a deadline on that branch, and who to
+  consult and inform. Shared sheets come first, then one set per branch.
+- **the main events list**: every inject with its trigger (a time or a milestone), who
+  delivers it, its purpose (advance, challenge, control) and the expected response. In a
+  dynamic exercise, what one player should tell another is an expected response with a
+  fallback inject; in a linear one the list holds the course corrections.
+- **role cards** for bank management, the independent valuer, the media, the finance
+  minister and potential buyers: what each knows, wants and says at each stage, with the
+  figures it holds.
+- **challenge injects**, switched on or off: an interested buyer, a second and worse
+  valuation, and under hostile assumptions all buyers withdrawing and a challenge from
+  creditors, with the liquidity need at reopening raised by an assumed share. None of
+  these changes the run. A rating downgrade (sidebar, off by default) does: it adds a
+  news shock. Ambient injects (press, politics, other authorities) add pressure without
+  changing any figure.
 - **a control team pack** with full information: both branches day by day, every decision
   point and where each option leads, the expected coordination steps and debrief questions.
-- **data files** (.csv): all injects, decision points, the decision log and the daily tables.
+- **data files** (.csv): the main events list, all injects, decision points, the decision log and the daily tables.
 
 Who sees what is set in `config/decisions.yaml` (`information`); the wording, clock times
 and coordination steps are in `config/script.yaml`. All of it is a draft.

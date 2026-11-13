@@ -70,8 +70,9 @@ DEMO_STEPS = (
     ),
     DemoStep(
         "Export the exercise script",
-        "Download the exercise pack: one document per authority, with only what it knows and "
-        "the decisions open to it, plus a control team pack with full information.",
+        "Download the exercise pack: inject sheets for each authority, with only what it knows "
+        "and the decisions open to it, the main events list, the role cards and the control "
+        "team pack with full information.",
         "ctl_export",
         TAB_SCRIPT,
     ),

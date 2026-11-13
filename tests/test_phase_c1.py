@@ -192,7 +192,7 @@ def test_requested_not_yet_settled_is_in_the_figures_and_in_the_liquidity_need()
     )
     pack = showcase_pack()
     files = pack_files(pack, SCRIPT, DECISIONS)
-    authority = docx_text(files["players/resolution_authority.docx"])
+    authority = docx_text(files["control_team/inject_sheets/resolution_authority.docx"])
     assert "Requested, not yet settled" in authority
     last = [i for i in pack.branches[1].injects["resolution_authority"] if i.figures][-1]
     queued = next(f for f in last.figures if f.name == "queued_withdrawals")
@@ -256,7 +256,7 @@ def test_only_bank_management_gets_the_outflow_by_time_block():
     outflow = next(f for f in report.figures if f.name == "outflow_total" and not f.block)
     assert [f.block for f in blocks] == list(INTRADAY_BLOCKS.values())
     assert sum(f.value for f in blocks) == pytest.approx(outflow.value)
-    text = docx_text(pack_files(pack, SCRIPT, DECISIONS)["players/bank_management.docx"])
+    text = docx_text(pack_files(pack, SCRIPT, DECISIONS)["control_team/role_cards/bank_management.docx"])
     assert "allocation of the daily figure" in text and "Outflow 09:00-12:00" in text
 
 

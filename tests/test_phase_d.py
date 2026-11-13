@@ -20,7 +20,7 @@ from engine.decisions import OUTCOME_LABELS, Choice, choices_of, lag_days
 from engine.export import pack_files, pack_to_zip
 from engine.model import simulate
 from engine.run import main
-from engine.schema import ACTORS, DECISION_STAGES, INTRADAY_BLOCKS, Parameter
+from engine.schema import ACTORS, DECISION_STAGES, INTRADAY_BLOCKS, PLAYERS, ROLES, Parameter
 from engine.script import branch_code, build_pack
 
 CONFIG = load_config()
@@ -204,10 +204,12 @@ def check_gate(pack, actor: str) -> int:
                 assert told.get(figure.name) == figure and figure.as_of_day <= inject.day
             # Resolution estimates: only in the resolution period, to the listed recipients.
             if inject.resolution:
-                assert inject.kind == "resolution_step" and result.foltf_day is not None
+                assert inject.kind in ("resolution_step", "challenge")
+                assert result.foltf_day is not None
                 assert result.foltf_day <= inject.day <= result.end_day
-                item = next(i for i in SCRIPT.resolution.values() if i.title == inject.title)
-                assert actor in item.recipients and item.figures
+                library = SCRIPT.resolution if inject.kind == "resolution_step" else SCRIPT.challenges
+                item = next(i for i in library.values() if i.title == inject.title)
+                assert actor in item.recipients and (item.figures or item.effect)
                 checked += len(inject.resolution)
     return checked
 
@@ -220,7 +222,7 @@ def test_no_actor_is_given_a_figure_outside_its_information_set(acceptance, acto
 def test_resolution_authority_document_shows_only_what_it_had_at_that_time(acceptance):
     """Acceptance: a reader with only this document cannot see figures the authority lacked."""
     files = pack_files(acceptance, SCRIPT, DECISIONS)
-    text = docx_text(files["players/resolution_authority.docx"])
+    text = docx_text(files["control_team/inject_sheets/resolution_authority.docx"])
     printed = set(FIGURE_TOKEN.findall(text))
     allowed = allowed_tokens(acceptance, "resolution_authority")
     assert printed and printed <= allowed, printed - allowed
@@ -306,8 +308,9 @@ def test_stage_notifications_flow_from_the_bank_to_the_authority_to_the_others(a
 def test_information_gate_holds_for_other_banks_scenarios_and_paths(bank, scenario, actor):
     pack = pack_for(bank, scenario, "support_package", "early_foltf_liquidation")
     check_gate(pack, actor)
-    text = docx_text(pack_files(pack, SCRIPT, DECISIONS)[f"players/{actor}.docx"])
-    assert set(FIGURE_TOKEN.findall(text)) <= allowed_tokens(pack, actor)
+    if actor in PLAYERS:  # bank management is played by the control team: it has a role card
+        text = docx_text(pack_files(pack, SCRIPT, DECISIONS)[f"control_team/inject_sheets/{actor}.docx"])
+        assert set(FIGURE_TOKEN.findall(text)) <= allowed_tokens(pack, actor)
 
 
 def test_daily_reporting_gives_the_competent_authority_same_day_figures():
@@ -441,7 +444,7 @@ def test_deadlines_are_relative_to_the_branch_being_read(acceptance):
                 assert inject.decision_due.deadline_shared
         for _, injects in document.branches:
             assert not any(i.decision_due.deadline_shared for i in injects if i.decision_due)
-    text = docx_text(pack_files(acceptance, SCRIPT, DECISIONS)["players/central_bank.docx"])
+    text = docx_text(pack_files(acceptance, SCRIPT, DECISIONS)["control_team/inject_sheets/central_bank.docx"])
     assert "The branches have different deadlines; this is the earlier one." in text
     # A branch that runs to the horizon has a fixed window instead.
     window = int(SCRIPT.decision_window_days.value)
@@ -502,8 +505,8 @@ def test_one_path_gives_documents_without_branches():
 
 def test_player_documents_do_not_give_the_outcome_away(acceptance):
     files = pack_files(acceptance, SCRIPT, DECISIONS)
-    for actor in ACTORS:
-        text = docx_text(files[f"players/{actor}.docx"])
+    for actor in PLAYERS:
+        text = docx_text(files[f"control_team/inject_sheets/{actor}.docx"])
         for path in DECISIONS.paths.values():
             assert path.name not in text  # branch names stay with the control team
         assert acceptance.scenario_name not in text
@@ -556,10 +559,11 @@ def test_control_team_pack_has_full_information(acceptance):
 def test_pack_holds_one_document_per_actor_the_control_team_pack_and_the_data(acceptance):
     files = pack_files(acceptance, SCRIPT, DECISIONS)
     assert sorted(files) == sorted(
-        [f"players/{actor}.docx" for actor in ACTORS]
-        + ["control_team/control_team_pack.docx"]
+        [f"control_team/inject_sheets/{actor}.docx" for actor in PLAYERS]
+        + [f"control_team/role_cards/{role}.docx" for role in ROLES]
+        + ["control_team/control_team_pack.docx", "control_team/main_events_list.docx"]
         + [f"control_team/data/SIMULATION_{name}.csv" for name in (
-            "injects", "decision_points", "decision_log", "resolution_summary",
+            "injects", "decision_points", "decision_log", "resolution_summary", "main_events_list",
             "daily_table_branch_A", "daily_table_branch_B")]
     )
     injects = pd.read_csv(io.BytesIO(files["control_team/data/SIMULATION_injects.csv"]))
@@ -581,7 +585,7 @@ def test_zip_is_complete_and_reproducible(acceptance):
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert archive.testzip() is None
         names = archive.namelist()
-    assert len(names) == 12 and "control_team/control_team_pack.docx" in names
+    assert len(names) == 18 and "control_team/control_team_pack.docx" in names
     with zipfile.ZipFile(io.BytesIO(again)) as archive:
         assert archive.namelist() == names
         csv = archive.read("control_team/data/SIMULATION_injects.csv")
@@ -595,7 +599,7 @@ def test_a_pack_can_be_built_for_every_bank_and_scenario(bank, scenario):
     pack = pack_for(bank, scenario, "act_late", "support_package")
     files = pack_files(pack, SCRIPT, DECISIONS)
     # No resolution on either branch here, so no resolution summary file.
-    assert len(files) == 11 and all(len(content) > 0 for content in files.values())
+    assert len(files) == 17 and all(len(content) > 0 for content in files.values())
     for document in pack.documents:
         assert document.shared[0].kind == "opening"
 
@@ -610,7 +614,7 @@ def test_cli_exports_the_pack(tmp_path, capsys):
     out = capsys.readouterr().out
     stem = "exercise_pack_universal_fast_run"
     assert (tmp_path / f"{stem}.zip").exists() and f"{stem}.zip" in out
-    assert (tmp_path / stem / "players" / "resolution_authority.docx").exists()
+    assert (tmp_path / stem / "control_team" / "inject_sheets" / "resolution_authority.docx").exists()
     assert (tmp_path / stem / "control_team" / "data" / "SIMULATION_daily_table_branch_B.csv").exists()
     # The same path twice gives a single branch.
     assert main(["--bank", "retail", "--scenario", "slow_burn", "--export-dir", str(tmp_path)]) == 0

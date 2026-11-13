@@ -228,6 +228,20 @@ def _liquidation(
     )
 
 
+def indicative_bid(summary: ResolutionSummary, params: ModelParams) -> float:
+    """Non-binding price named by the interested buyer (challenge inject, SPEC_V3 G5).
+
+    An assumed share of the CET1 the bank holds once it is back at its requirement after the
+    write-down. It changes no other figure.
+    """
+    return params.buyer_indicative_bid_share.value * summary.requirement * summary.rwa_after
+
+
+def hostile_liquidity_need(summary: ResolutionSummary, params: ModelParams) -> float:
+    """Liquidity need at reopening under hostile assumptions: a negative market reaction."""
+    return summary.liquidity_need * (1.0 + params.hostile_liquidity_uplift.value)
+
+
 def resolution_levels(
     bank: Bank, params: ModelParams, result: SimulationResult
 ) -> Optional[dict[str, ResolutionSummary]]:
@@ -253,8 +267,13 @@ def breakpoint_text(summary: ResolutionSummary) -> str:
     )
 
 
-def summary_rows(summary: ResolutionSummary, unit: str) -> list[tuple[str, str]]:
-    """The resolution summary as (label, value) pairs, in display order."""
+def summary_rows(
+    summary: ResolutionSummary, unit: str, hostile_need: Optional[float] = None
+) -> list[tuple[str, str]]:
+    """The resolution summary as (label, value) pairs, in display order.
+
+    hostile_need: under hostile assumptions, the raised liquidity need, shown as one more line.
+    """
     amount = lambda value: f"{value:.2f}"  # noqa: E731
     tool = {"bail_in": "Bail-in", "sale_of_business": "Sale of business",
             "liquidation": "Liquidation"}[summary.tool]
@@ -310,4 +329,9 @@ def summary_rows(summary: ResolutionSummary, unit: str) -> list[tuple[str, str]]
         (f"Liquidity need over the following days ({unit})", amount(summary.liquidity_need)),
         (f"Of which requested, not yet settled ({unit})", amount(summary.queued)),
     ]
+    if hostile_need is not None:
+        rows.append(
+            (f"Liquidity need with a negative market reaction (hostile assumption) ({unit})",
+             amount(hostile_need))
+        )
     return rows

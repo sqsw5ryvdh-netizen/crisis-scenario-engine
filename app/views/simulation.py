@@ -23,7 +23,7 @@ from engine.decisions import (
     intraday_allocation,
     scorecard_rows,
 )
-from engine.export import pack_to_zip
+from engine.export import main_events_rows, pack_to_zip
 from engine.model import simulate, uninsured_share, with_uninsured_share
 from engine.resolution import (
     LEVELS,
@@ -33,7 +33,15 @@ from engine.resolution import (
     summary_rows,
 )
 from engine.schema import TAXONOMY, TAXONOMY_TITLES
-from engine.script import MODE_LABELS, MODE_TEXT, MODES, build_pack
+from engine.schema import PLAYERS
+from engine.script import (
+    MODE_LABELS,
+    MODE_TEXT,
+    MODES,
+    active_challenges,
+    build_pack,
+    scenario_with_challenges,
+)
 from engine.montecarlo import (
     bands,
     describe_failure_day,
@@ -389,6 +397,15 @@ with st.sidebar:
     st.header("Decisions")
     with st.container(key="ctl_decisions"):
         choices = decision_panel(config.decisions, int(config.model.horizon_days.value))
+    for key, item in config.script.challenges.items():
+        if item.effect == "panic_shock":
+            st.checkbox(
+                f"Challenge inject: {item.title.lower()}",
+                key=f"challenge_{key}",
+                help="A public news event with a panic shock, placed after its stage on the "
+                "path without decisions. The only challenge inject that changes the run. "
+                "The others are chosen in the Exercise script tab.",
+            )
 
     st.header("Uncertainty")
     n_runs = int(config.model.monte_carlo_runs.value)
@@ -401,7 +418,10 @@ with st.sidebar:
     )
 
 # When any input changes, playback stops and the timeline shows the whole new run.
-signature = (prefix, severity, share_pct, *shown_values, choices)
+signature = (
+    prefix, severity, share_pct, *shown_values, choices,
+    *(st.session_state.get(f"challenge_{key}", False) for key in config.script.challenges),
+)
 if st.session_state.get("run_signature") != signature:
     st.session_state["run_signature"] = signature
     st.session_state["play_next"] = None
@@ -429,6 +449,14 @@ scenario = scenario.model_copy(
         "severity": recentre("severity", scenario.severity, severity),
         "overrides": overrides,
     }
+)
+# The only challenge inject that changes the run: a news event with a panic shock.
+news_challenges = [
+    key for key, item in config.script.challenges.items()
+    if item.effect == "panic_shock" and st.session_state.get(f"challenge_{key}")
+]
+scenario = scenario_with_challenges(
+    bank, config.model, scenario, config.decisions, config.script, news_challenges
 )
 weekends = resolved.weekend_rules_on.value >= 1
 result = simulate(bank, config.model, scenario, config.decisions, choices)
@@ -645,8 +673,10 @@ if script_tab.open:
         paths = config.decisions.paths
         st.subheader("Exercise script")
         st.caption(
-            "One document per actor, with only what that actor knows and when it knows it, "
-            "plus a control team pack with full information. Wording is a draft."
+            "For the control team: the inject sheets of the four players, each with only "
+            "what that player knows and when it knows it, the main events list, the role "
+            "cards of the stakeholders the control team plays, and the control team pack. "
+            "Wording is a draft."
         )
         other_key = st.selectbox(
             "Second branch of the script",
@@ -670,6 +700,29 @@ if script_tab.open:
             value=True,
             key="script_ambient",
         )
+        hostile = st.radio(
+            "Assumptions",
+            ["Friendly", "Hostile"],
+            horizontal=True,
+            key="script_assumptions",
+            help="Friendly: no challenge from creditors, no buyer withdrawing, no negative "
+            "market reaction. Hostile: these are added, and the liquidity need at reopening "
+            "is also shown raised by an assumed share. Neither changes the run.",
+        ) == "Hostile"
+        quiet = {
+            key: item for key, item in config.script.challenges.items()
+            if item.effect != "panic_shock"
+        }
+        defaults = active_challenges(config.script, None, hostile)
+        picked = st.multiselect(
+            "Challenge injects",
+            list(quiet),
+            default=[key for key in quiet if key in defaults],
+            format_func=lambda k: quiet[k].title,
+            key=f"script_challenges_{'hostile' if hostile else 'friendly'}",
+            help="Injects that challenge the players. They change no figure of the run. The "
+            "rating downgrade, which does, is switched on in the sidebar.",
+        )
         other_choices = choices_of(paths[other_key])
         branches = [("Path selected in the sidebar", choices)]
         if tuple(other_choices) != tuple(choices):
@@ -681,6 +734,8 @@ if script_tab.open:
             ambient=ambient_on,
             writedown_level=st.session_state.get("writedown_level", "central"),
             mode=mode,
+            challenges=[*picked, *news_challenges],
+            hostile=hostile,
         )
         st.caption(MODE_TEXT[mode])
         with st.container(key="ctl_export"):
@@ -691,12 +746,28 @@ if script_tab.open:
                 mime="application/zip",
             )
         st.caption(
-            "The zip holds five player documents (.docx), the control team pack (.docx) "
-            "and the data (.csv): injects, decision points, decision log, daily tables."
+            "The zip holds the inject sheets of the four players, the main events list, "
+            "five role cards, the control team pack (.docx) and the data (.csv): main "
+            "events list, injects, decision points, decision log, daily tables."
         )
+        with st.expander(f"Main events list ({len(pack.events)} injects)"):
+            st.caption(
+                "Every inject to a player: its trigger, who delivers it, its purpose "
+                "(advance, challenge, control) and the response the control team looks for."
+            )
+            events = pd.DataFrame(main_events_rows(pack, config.script))
+            if len(pack.branches) == 1:
+                events = events.drop(columns="Branch")
+            st.dataframe(events, hide_index=True, width="stretch")
+        with st.expander("Role cards: the stakeholders the control team plays"):
+            for card in pack.roles:
+                st.markdown(
+                    f"**{card.name}** delivers {len(card.delivers)} inject"
+                    f"{'' if len(card.delivers) == 1 else 's'}. Wants: {card.wants[0]}"
+                )
         actor = st.selectbox(
-            "Preview the document of",
-            [document.actor for document in pack.documents],
+            "Preview the inject sheets of",
+            list(PLAYERS),
             format_func=lambda k: config.script.actors[k],
             key="script_actor",
         )
@@ -712,6 +783,11 @@ if script_tab.open:
             for inject in injects:
                 when = f"Day {inject.day}" + (f", {inject.weekday}" if inject.weekday else "")
                 with st.expander(f"{when}, {inject.time} - {inject.title}"):
+                    st.caption(
+                        f"Control team: {inject.purpose}"
+                        + (", fallback" if inject.fallback else "")
+                        + f". Delivered by {inject.delivered_by}. {inject.trigger}."
+                    )
                     st.markdown(f"*From: {inject.sender}*")
                     for line in inject.text.split("\n"):
                         st.write(line)

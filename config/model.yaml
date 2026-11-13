@@ -266,6 +266,25 @@ liquidation_haircut:
   source: ASSUMPTION
   low: 0.10
   high: 0.35
+# Challenge injects and hostile assumptions (SPEC_V3 G5). The first two are computed after a
+# run and change none of its figures.
+# Hostile assumptions: the liquidity need at reopening is raised by this share, for a
+# negative market reaction.
+hostile_liquidity_uplift:
+  value: 0.25
+  unit: share added to the liquidity need at reopening
+  source: ASSUMPTION
+# "Interested buyer" inject: non-binding bid, as a share of the CET1 the bank holds once it is
+# back at its capital requirement after the valuation write-down.
+buyer_indicative_bid_share:
+  value: 0.5
+  unit: share of CET1 at the requirement after the write-down
+  source: ASSUMPTION
+# "Rating downgrade" inject (off by default): the only challenge inject that changes the run.
+rating_downgrade_panic_shock:
+  value: 0.10
+  unit: added to the panic input
+  source: ASSUMPTION
 
 # "Stabilised" at the end of a run: on each of the last `stabilised_days` days the flag
 # conditions do not hold, the liquidity buffer is positive and the daily outflow is below

@@ -384,6 +384,11 @@ class ModelParams(StrictModel):
     # low, central and high value; the control team picks one.
     resolution_writedown_share: Parameter
     liquidation_haircut: Parameter
+    # Challenge injects and hostile assumptions (SPEC_V3 G5). The first two are computed after
+    # a run and change no figure of it; the third is a news shock added to the scenario.
+    hostile_liquidity_uplift: Parameter
+    buyer_indicative_bid_share: Parameter
+    rating_downgrade_panic_shock: Parameter
     # Thresholds of the "stabilised" outcome at the end of a run.
     stabilised_days: Parameter
     stabilised_outflow_share: Parameter
@@ -467,6 +472,24 @@ ACTORS = (
     "deposit_guarantee_scheme",
     "bank_management",
 )
+# SPEC_V3 phase G: the four authorities are the players. Bank management is a simulated
+# stakeholder, played by the control team (EBA Handbook, par. 132 and 198); the engine still
+# works out what it sees, for its role card.
+PLAYERS = ACTORS[:4]
+# Stakeholders the control team plays, each with a role card.
+ROLES = ("bank_management", "independent_valuer", "media", "finance_minister", "potential_buyers")
+CONTROL_TEAM = "control_team"  # delivers an inject without playing a role
+# The moments a role card gives a line for.
+ROLE_STAGES = {
+    "normal": "Before any stage is reached",
+    "recovery": "Recovery indicator breached",
+    "early_intervention": "Early intervention conditions met",
+    "likely_to_fail": "The bank is likely to fail",
+    "foltf": "FoLtF declared",
+    "resolution": "The tool is applied or the bank is wound up",
+}
+# Purpose of an inject (EBA Handbook, par. 128).
+PURPOSES = ("advance", "challenge", "control")
 # --------------------------------------------------------------------------- decisions
 
 # Stages a decision can wait for ("failure" is the payments default).
@@ -713,6 +736,20 @@ SCRIPT_TEXTS = {
     "decision_taken": ("decider", "decision_name", "option_name", "effect_day"),
     "decision_due": ("decision_name",),
     "end_open": ("bank_name", "horizon_days"),
+    "course_correction": ("decision_name", "option_name"),
+}
+# Expected response to each kind of inject, for the main events list (SPEC_V3 G4).
+SCRIPT_EXPECTED = {
+    "opening": (),
+    "news": (),
+    "stage": ("inform",),  # to the competent authority, from the bank
+    "stage_relayed": (),  # to the other authorities
+    "foltf": (),
+    "resolution": (),
+    "decision_taken": (),
+    "decision_due": ("consult", "inform"),
+    "end_open": (),
+    "course_correction": (),
 }
 # "stage": the bank learns of a stage change; "stage_relay": the competent authority is told
 # by the bank; "stage_relay_others": the other authorities are told by the competent authority.
@@ -722,6 +759,14 @@ SCRIPT_CLOCK = (
 )
 # What an ambient inject can be anchored to.
 AMBIENT_ANCHORS = DECISION_STAGES + ("foltf",)
+
+
+def _check_delivery(what: str, role: str, expected: str) -> None:
+    if role not in ROLES + (CONTROL_TEAM,):
+        raise ValueError(f"{what}: unknown role '{role}'")
+    _check_text(expected, ())
+    if any(character.isdigit() for character in expected):
+        raise ValueError(f"{what}: the expected response must not carry figures")
 
 
 def _check_text(text: str, allowed: tuple[str, ...]) -> None:
@@ -751,6 +796,8 @@ class AmbientInject(StrictModel):
     offset_days: int = Field(ge=0)
     time: str
     text: str = Field(min_length=1)
+    role: str  # who delivers it: a simulated stakeholder, or the control team itself
+    expected: str = Field(min_length=1)  # the response the control team looks for
 
     @model_validator(mode="after")
     def _check(self) -> "AmbientInject":
@@ -760,6 +807,7 @@ class AmbientInject(StrictModel):
         if self.anchor not in AMBIENT_ANCHORS:
             raise ValueError(f"ambient '{self.title}': unknown anchor '{self.anchor}'")
         _check_text(self.text, ("bank_name",))
+        _check_delivery(f"ambient '{self.title}'", self.role, self.expected)
         if any(character.isdigit() for character in self.text):
             raise ValueError(f"ambient '{self.title}': the text must not carry figures")
         return self
@@ -779,6 +827,8 @@ class ResolutionInject(StrictModel):
     time: str
     text: str = Field(min_length=1)
     figures: list[str] = Field(default_factory=list)
+    role: str
+    expected: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def _check(self) -> "ResolutionInject":
@@ -788,8 +838,75 @@ class ResolutionInject(StrictModel):
         if set(self.figures) - set(RESOLUTION_FIGURE_GROUPS):
             raise ValueError(f"resolution inject '{self.title}': unknown figure group")
         _check_text(self.text, ("bank_name", "tool"))
+        _check_delivery(f"resolution inject '{self.title}'", self.role, self.expected)
         if any(character.isdigit() for character in self.text):
             raise ValueError(f"resolution inject '{self.title}': the text must not carry figures")
+        return self
+
+
+# What a challenge inject does besides its text.
+# second_valuation: carries the resolution figures at the write-down level above the one the
+#   players were first given; indicative_bid: carries an assumed bid; panic_shock: is a public
+#   news event with a panic shock, added to the scenario (the only one that changes the run).
+CHALLENGE_EFFECTS = ("second_valuation", "indicative_bid", "panic_shock")
+
+
+class ChallengeInject(StrictModel):
+    """An inject meant to challenge the players (EBA Handbook, par. 123, 129, 192)."""
+
+    title: str = Field(min_length=1)
+    sender: str = Field(min_length=1)
+    role: str
+    recipients: list[str]
+    anchor: str
+    offset_days: int = Field(ge=0)
+    time: str
+    text: str = Field(min_length=1)
+    expected: str = Field(min_length=1)
+    default: bool = False  # part of the pack unless switched off
+    hostile: bool = False  # added when the assumptions are set to hostile
+    figures: list[str] = Field(default_factory=list)
+    effect: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check(self) -> "ChallengeInject":
+        what = f"challenge '{self.title}'"
+        unknown = set(self.recipients) - set(PLAYERS)
+        if unknown or not self.recipients:
+            raise ValueError(f"{what}: recipients must be players")
+        if self.anchor not in AMBIENT_ANCHORS:
+            raise ValueError(f"{what}: unknown anchor '{self.anchor}'")
+        if set(self.figures) - set(RESOLUTION_FIGURE_GROUPS):
+            raise ValueError(f"{what}: unknown figure group")
+        if self.effect is not None and self.effect not in CHALLENGE_EFFECTS:
+            raise ValueError(f"{what}: unknown effect '{self.effect}'")
+        if self.effect == "panic_shock" and self.anchor not in DECISION_STAGES:
+            raise ValueError(f"{what}: a panic shock must be anchored to a stage")
+        if self.effect != "panic_shock" and self.figures and self.anchor != "foltf":
+            raise ValueError(f"{what}: resolution figures need the anchor 'foltf'")
+        _check_text(self.text, ("bank_name",))
+        _check_delivery(what, self.role, self.expected)
+        if any(character.isdigit() for character in self.text):
+            raise ValueError(f"{what}: the text must not carry figures")
+        return self
+
+
+class Role(StrictModel):
+    """A stakeholder played by the control team: the text of its role card (SPEC_V3 G6)."""
+
+    name: str = Field(min_length=1)
+    knows: list[str] = Field(min_length=1)
+    wants: list[str] = Field(min_length=1)
+    lines: dict[str, str]  # what it says at each moment of ROLE_STAGES it has a line for
+
+    @model_validator(mode="after")
+    def _check(self) -> "Role":
+        if not self.lines or set(self.lines) - set(ROLE_STAGES):
+            raise ValueError(f"role '{self.name}': lines must be keyed by {list(ROLE_STAGES)}")
+        for text in [*self.knows, *self.wants, *self.lines.values()]:
+            _check_text(text, ("bank_name",))
+            if any(character.isdigit() for character in text):
+                raise ValueError(f"role '{self.name}': the texts must not carry figures")
         return self
 
 
@@ -825,6 +942,12 @@ class ScriptConfig(StrictModel):
     ambient: dict[str, AmbientInject] = Field(default_factory=dict)
     # Injects of the resolution period, in order.
     resolution: dict[str, ResolutionInject] = Field(default_factory=dict)
+    # Expected response per kind of inject, for the main events list.
+    expected: dict[str, str]
+    # Challenge injects; the control team switches each on or off.
+    challenges: dict[str, ChallengeInject] = Field(default_factory=dict)
+    # The stakeholders the control team plays.
+    roles: dict[str, Role]
     debrief: list[str]
     glossary: list[GlossaryEntry]
 
@@ -837,6 +960,7 @@ class ScriptConfig(StrictModel):
         times = dict(self.clock)
         times.update({f"ambient {key}": item.time for key, item in self.ambient.items()})
         times.update({f"resolution {key}": item.time for key, item in self.resolution.items()})
+        times.update({f"challenge {key}": item.time for key, item in self.challenges.items()})
         for kind, value in times.items():
             hours, _, minutes = value.partition(":")
             if not (hours.isdigit() and minutes.isdigit() and len(minutes) == 2
@@ -846,6 +970,14 @@ class ScriptConfig(StrictModel):
             raise ValueError(f"texts must be exactly {list(SCRIPT_TEXTS)}")
         for kind, text in self.texts.items():
             _check_text(text, SCRIPT_TEXTS[kind])
+        if set(self.expected) != set(SCRIPT_EXPECTED):
+            raise ValueError(f"expected must be exactly {list(SCRIPT_EXPECTED)}")
+        for kind, text in self.expected.items():
+            _check_text(text, SCRIPT_EXPECTED[kind])
+            if any(character.isdigit() for character in text):
+                raise ValueError(f"expected '{kind}' must not carry figures")
+        if set(self.roles) != set(ROLES):
+            raise ValueError(f"roles must be exactly {list(ROLES)}")
         window = self.decision_window_days.value
         if window < 0 or window != int(window):
             raise ValueError("decision_window_days must be a whole number >= 0")

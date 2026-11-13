@@ -76,6 +76,31 @@ texts:
     A decision is now open to you: {decision_name}.
   end_open: >-
     The exercise ends after {horizon_days} days. {bank_name} is still open.
+  course_correction: >-
+    Control team: the exercise is linear. Whatever you decided on "{decision_name}", continue
+    on this basis: {option_name}. Your own decision is recorded for the debrief.
+
+# What the control team looks for after each kind of inject (main events list). No figures.
+# stage: the competent authority is told by the bank and should pass it on ({inform}).
+expected:
+  opening: Read the briefing. No action is expected yet.
+  news: Take note. Consider whether it changes your assessment or calls for a public line.
+  stage: >-
+    Assess the figures and what they mean for the decisions open to you. Pass the
+    notification on to: {inform}.
+  stage_relayed: >-
+    Assess what it means for your own tasks. Ask the sender for the information you are
+    missing.
+  foltf: Start the steps that follow the declaration. Confirm who leads and who communicates.
+  resolution: None. The debrief follows.
+  decision_taken: Take note. Reassess the decisions open to you.
+  decision_due: >-
+    Decide by the deadline and tell the control team. Consult first: {consult}. Inform
+    afterwards: {inform}.
+  end_open: None. The debrief follows.
+  course_correction: >-
+    Continue on the stated basis. The control team notes the deviation and raises it in the
+    debrief.
 
 # Ambient injects: background noise with no effect on any figure. The control team can switch
 # them off. Each is placed `offset_days` after its anchor (a stage, or "foltf") if the run
@@ -91,6 +116,9 @@ ambient:
     text: >-
       A journalist asks whether {bank_name} is in difficulty and whether the authorities
       are involved. A reply is requested before the evening edition.
+    role: media
+    expected: >-
+      Agree who answers and with which line. Tell the other authorities what was said.
   tv_footage:
     title: TV footage of branch queues
     sender: A television news channel
@@ -101,6 +129,9 @@ ambient:
     text: >-
       A news channel shows customers queuing outside two branches of {bank_name} and
       asks for a comment on air.
+    role: media
+    expected: >-
+      Agree one line with the other authorities before anyone answers. Do not confirm figures on air.
   ministry_call:
     title: Call from the finance ministry
     sender: The finance ministry
@@ -111,6 +142,9 @@ ambient:
     text: >-
       A senior official at the finance ministry asks for an update on {bank_name} and
       whether public funds could be needed. The minister expects a briefing today.
+    role: finance_minister
+    expected: >-
+      Brief the ministry on agreed facts only. Agree between authorities who speaks to the ministry.
   foreign_authority_request:
     title: Request from a foreign authority
     sender: A supervisory authority abroad
@@ -121,6 +155,9 @@ ambient:
     text: >-
       The authority supervising a foreign branch of {bank_name} asks what you intend to
       do and when it will be told. It is considering measures of its own.
+    role: control_team
+    expected: >-
+      Reply with what can be shared and say when more will follow. Tell the other authorities about the request.
   parliamentary_question:
     title: Parliamentary question
     sender: A member of parliament
@@ -131,6 +168,9 @@ ambient:
     text: >-
       A member of parliament tables an urgent question on the supervision of
       {bank_name} and asks why depositors have not been told more.
+    role: control_team
+    expected: >-
+      Prepare a holding reply. Check it against what has been said in public so far.
   depositor_association:
     title: Letter from a depositors' association
     sender: A depositors' association
@@ -141,6 +181,9 @@ ambient:
     text: >-
       An association of depositors asks when and how customers of {bank_name} will have
       access to their money, and where they should turn for information.
+    role: control_team
+    expected: >-
+      Agree one message for depositors and who gives it. Do not promise dates that are not agreed.
 
 # Injects of the resolution period: after FoLtF is in effect and before the tool applies.
 # Each is placed `offset_days` after the FoLtF day (never after the last day of the run).
@@ -157,6 +200,9 @@ resolution:
       The provisional valuation of {bank_name} is in. It is an estimate made under time
       pressure and may be revised. It gives the write-down of the loan book and the capital
       needed to restore the requirement.
+    role: independent_valuer
+    expected: >-
+      Share the valuation with the other authorities. Assess whether available loss-absorbing capacity covers the need.
     figures: [capital, mrel]
   loss_allocation:
     title: Who bears the losses
@@ -168,6 +214,9 @@ resolution:
       The resolution team has worked out who would bear the losses of {bank_name} under
       the option being prepared: {tool}. The order of loss absorption is the one used in
       this model.
+    role: control_team
+    expected: >-
+      Check the allocation against the chosen tool. Identify who must be told before the announcement.
     figures: [losses]
   communication:
     title: Communication before the bank reopens
@@ -179,6 +228,9 @@ resolution:
       Markets open tomorrow morning. Agree who announces the outcome for {bank_name}, at
       what time, and with which message for depositors, for creditors and for staff. Agree
       who answers the press, and what each authority will not say.
+    role: control_team
+    expected: >-
+      Agree one announcement, its time and its speakers, and write it down.
   reopening_liquidity:
     title: Liquidity when the bank reopens
     sender: The resolution team
@@ -189,7 +241,166 @@ resolution:
       Estimate of the liquidity {bank_name} needs over the days after it reopens,
       including the withdrawals requested during the weekend and not yet settled. Decide
       who provides it and against what.
+    role: control_team
+    expected: >-
+      Agree the source of the liquidity, the collateral and who decides, before the bank reopens.
     figures: [liquidity]
+
+# Challenge injects (EBA Handbook, par. 123, 129 and 192). Each can be switched on or off by
+# the control team. default: part of the pack unless switched off. hostile: added when the
+# assumptions are set to hostile. Placed `offset_days` after the anchor, like ambient injects.
+# Only the rating downgrade changes the run (a news event with a panic shock, set in
+# config/model.yaml); the others change no figure of the simulation.
+challenges:
+  buyer_interest:
+    title: A potential buyer shows interest
+    sender: A potential buyer
+    role: potential_buyers
+    recipients: [resolution_authority]
+    anchor: foltf
+    offset_days: 0
+    time: "16:00"
+    default: true
+    effect: indicative_bid
+    text: >-
+      A bank has told the resolution authority that it is interested in buying
+      {bank_name}. It gives an indicative, non-binding price and asks for access to data. It
+      will not confirm before it has seen the valuation.
+    expected: >-
+      Reassess whether a sale of business is possible in the time left. Decide what the buyer
+      may see. Tell the other authorities.
+  second_valuation:
+    title: Updated valuation, worse than the first
+    sender: The independent valuer
+    role: independent_valuer
+    recipients: [resolution_authority]
+    anchor: foltf
+    offset_days: 1
+    time: "13:00"
+    default: true
+    effect: second_valuation
+    figures: [capital, mrel, losses]
+    text: >-
+      Unsolicited update from the valuer: a closer look at the loan book of {bank_name}
+      shows larger losses than the provisional valuation. The figures below replace the
+      earlier ones.
+    expected: >-
+      Share the update with the other authorities at once. Reconsider who bears the losses and
+      whether the chosen tool still holds.
+  buyers_withdraw:
+    title: All potential buyers withdraw
+    sender: The potential buyers
+    role: potential_buyers
+    recipients: [resolution_authority]
+    anchor: foltf
+    offset_days: 1
+    time: "11:00"
+    hostile: true
+    text: >-
+      Every party that had shown interest in {bank_name} has withdrawn before making a
+      binding offer. A sale of business is no longer available.
+    expected: >-
+      Drop the sale of business and move to another tool without losing the timetable. Tell
+      the other authorities.
+  creditor_challenge:
+    title: Creditors announce a legal challenge
+    sender: A group of bondholders
+    role: control_team
+    recipients: [resolution_authority]
+    anchor: foltf
+    offset_days: 1
+    time: "14:00"
+    hostile: true
+    text: >-
+      A group of bondholders of {bank_name} announces that it will contest any write-down
+      of its claims and asks for the valuation to be disclosed.
+    expected: >-
+      Check that the decision and the valuation are documented. Agree what can be disclosed
+      and who answers. Do not let it delay the decision.
+  rating_downgrade:
+    title: Rating downgrade
+    sender: Public media
+    role: media
+    recipients: [competent_authority, resolution_authority, central_bank, deposit_guarantee_scheme]
+    anchor: early_intervention
+    offset_days: 1
+    time: "09:00"
+    effect: panic_shock
+    text: >-
+      A rating agency downgrades {bank_name} and keeps it under review for a further cut
+    expected: >-
+      Expect faster outflows. Reassess the liquidity position and the decisions open to you.
+
+# Simulated stakeholders: the roles the control team plays (EBA Handbook, par. 132 and 198).
+# Each has a role card. The texts carry no figures; the engine adds the figures a role holds.
+# lines: what the role says at each moment (normal, recovery, early_intervention,
+# likely_to_fail, foltf, resolution).
+roles:
+  bank_management:
+    name: Bank management
+    knows:
+      - You have the bank's own figures of the same day, and the day's outflows by time of day.
+      - You know what you have reported to the competent authority, and nothing about what the authorities discuss among themselves.
+    wants:
+      - To keep {bank_name} open and independent, and to keep your posts.
+      - To avoid any public sign of weakness, and to obtain central bank funding early.
+    lines:
+      normal: Business as usual. You report on the usual schedule and volunteer nothing.
+      recovery: You notify the competent authority, as you must. You present the breach as temporary and point to the recovery plan.
+      early_intervention: You argue that the recovery options are working and that more intrusive measures would be noticed by the market.
+      likely_to_fail: You ask for emergency liquidity and for time. You resist any talk of failure, but you answer questions on figures truthfully.
+      foltf: You cooperate. You ask what happens to payments, to staff and to you, and when customers will be told.
+      resolution: You carry out instructions and ask for one clear message to give to staff and customers.
+  independent_valuer:
+    name: Independent valuer
+    knows:
+      - You have the bank's balance sheet at the declaration and limited access to the loan files.
+      - You work under time pressure. Your first report is provisional and you say so.
+    wants:
+      - To protect your independence. You do not adjust a figure because an authority finds it inconvenient.
+      - More time and more data than you are given.
+    lines:
+      foltf: You deliver the provisional valuation when the resolution authority asks for it, or at the planned time. You stress that it may be revised.
+      resolution: If asked, you explain the method in plain words and say what you could not check. If the updated valuation is in play, you deliver it unprompted and explain what changed.
+  media:
+    name: Media
+    knows:
+      - Only what is public, what customers say, and what you can see outside the branches.
+      - You hold no figure of the bank. If you quote one, it comes from a player who gave it to you.
+    wants:
+      - A statement on the record, today, from the bank and from an authority.
+      - Any sign that the authorities disagree or are holding something back.
+    lines:
+      normal: You report the news of the scenario. You ask nothing yet.
+      recovery: You ask the bank and the competent authority whether the bank is in difficulty, with a deadline for the reply.
+      early_intervention: You report queues and ask for a comment on air. You compare the answers of different authorities.
+      likely_to_fail: You ask whether deposits are safe and whether the authorities are preparing to step in.
+      foltf: You ask who decides what happens next, when the bank reopens and who will lose money.
+      resolution: You ask for the announcement, and who pays.
+  finance_minister:
+    name: Finance minister
+    knows:
+      - What is public, and what the authorities choose to tell your officials.
+      - You have no figures of your own. You ask for them and you remember what you were told.
+    wants:
+      - No use of public funds, and no surprise in the press or in parliament.
+      - To be briefed before any announcement, and to know who is in charge.
+    lines:
+      early_intervention: Your officials call for an update and ask whether public funds could be needed.
+      likely_to_fail: You ask what the options are, what each costs and who decides. You press for a date.
+      foltf: You ask to see the announcement before it goes out and you question any option that touches depositors.
+      resolution: You ask what you can say in public and what happens on the day the bank reopens.
+  potential_buyers:
+    name: Potential buyers
+    knows:
+      - What is public, and what the resolution authority gives you access to.
+      - Your interest and your price are indicative until you have seen the valuation.
+    wants:
+      - The deposits and the good loans, at a low price, with the losses covered by someone else.
+      - Time for due diligence, which you will not get.
+    lines:
+      foltf: One of you tells the resolution authority that it is interested and names an indicative price. You ask for data access and for the timetable.
+      resolution: You confirm or withdraw as the main events list says. If you withdraw, you give no reason beyond the uncertainty on the losses.
 
 # One question per decision, put to the actor that decides.
 questions:

@@ -12,8 +12,14 @@ from engine.decisions import OPEN_OUTCOMES, OUTCOME_LABELS, choices_of, decision
 from engine.export import pack_files, pack_to_zip
 from engine.model import SimulationResult, simulate
 from engine.montecarlo import describe_failure_day, run_monte_carlo, summarise
-from engine.resolution import LEVELS, breakpoint_text, resolution_summary, summary_rows
-from engine.script import MODES, build_pack
+from engine.resolution import (
+    LEVELS,
+    breakpoint_text,
+    hostile_liquidity_need,
+    resolution_summary,
+    summary_rows,
+)
+from engine.script import MODES, active_challenges, build_pack, scenario_with_challenges
 
 # column in the result table -> (header, format)
 _COLUMNS = {
@@ -75,10 +81,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--writedown", choices=LEVELS, default="central",
         help="valuation write-down at FoLtF used in the resolution summary (an assumption)",
     )
+    parser.add_argument(
+        "--hostile", action="store_true",
+        help="hostile assumptions: add the hostile challenge injects and show the liquidity "
+        "need at reopening with a negative market reaction",
+    )
+    parser.add_argument(
+        "--challenge", action="append", metavar="KEY",
+        help="challenge inject of config/script.yaml to play; repeat for several. Replaces "
+        "the defaults. 'rating_downgrade' adds a news shock to the run",
+    )
     parser.add_argument("--config-dir", type=Path, default=DEFAULT_CONFIG_DIR)
     parser.add_argument(
         "--export-dir", type=Path,
-        help="write the exercise pack here: one document per actor, control team pack, data",
+        help="write the exercise pack here: inject sheets, main events list, role cards, "
+        "control team pack, data",
     )
     parser.add_argument(
         "--compare-path",
@@ -113,6 +130,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     bank = config.banks[args.bank]
     scenario = config.scenarios[args.scenario]
+    unknown = set(args.challenge or ()) - set(config.script.challenges)
+    if unknown:
+        parser.error(
+            f"unknown challenge inject {sorted(unknown)}. "
+            f"Available: {', '.join(config.script.challenges)}"
+        )
+    challenges = active_challenges(config.script, args.challenge, args.hostile)
+    # Only a challenge inject that is a public news event changes the run.
+    scenario = scenario_with_challenges(
+        bank, config.model, scenario, config.decisions, config.script, challenges
+    )
     path = config.decisions.paths[path_key]
     choices = choices_of(path)
     result = simulate(bank, config.model, scenario, config.decisions, choices)
@@ -155,7 +183,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     summary = resolution_summary(bank, config.model, result, args.writedown)
     if summary is not None:
         print("Resolution summary")
-        for label, value in summary_rows(summary, bank.unit):
+        resolved = config.model.with_overrides(scenario.overrides)
+        hostile_need = hostile_liquidity_need(summary, resolved) if args.hostile else None
+        for label, value in summary_rows(summary, bank.unit, hostile_need):
             print(f"  {label:<88} {value}")
         print(f"  {breakpoint_text(summary)}")
         print()
@@ -201,6 +231,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             ambient=not args.no_ambient,
             writedown_level=args.writedown,
             mode=args.mode,
+            challenges=challenges,
+            hostile=args.hostile,
         )
         stem = f"exercise_pack_{args.bank}_{args.scenario}"
         args.export_dir.mkdir(parents=True, exist_ok=True)

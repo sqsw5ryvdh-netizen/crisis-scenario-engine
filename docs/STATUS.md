@@ -1,38 +1,38 @@
 # STATUS
 
-Last completed: **SPEC_V3 phase G, part a - Handbook language and scenarios** (2026-11-13). Done before: M0-M6 and SPEC_V2 phases A, B, B2, D, C1, C2. Next: phase G part b (control team materials), after review; then part c (set-up documents).
+Last completed: **SPEC_V3 phase G, part b - Control team materials** (2026-11-13). Done before: M0-M6, SPEC_V2 phases A, B, B2, D, C1, C2, and G part a. Next: phase G part c (set-up documents and the phase G acceptance pack), after review.
 
-## What was built in G-a
-- **G1 vocabulary.** "Facilitator" is now "control team", "participants" are "players", "FOLTF" is spelled "FoLtF", and the control team's timeline is the "simulation operational timeline", in the app, the exported documents, config, CLI and code. Pack folders are `players/` and `control_team/`.
-- **G9 SIMULATION label.** Every exported Word file carries "SIMULATION - exercise material, not a real event" in the header and footer of every page and under the title; every data file has `SIMULATION_` in its name.
-- **G2 taxonomy and designer.** Each scenario has a type of issue, systemic relevance and speed (Handbook par. 115). A "Scenario designer" in the sidebar filters the scenarios by them. New solvency-led scenario "Loss revealed": a news event can now write off part of the loan book against CET1.
-- **G3 linear or dynamic.** A switch in the Exercise script tab and `--mode`. Dynamic: two branches with branch codes. Linear: one fixed path, decisions put to the players but without branch codes. Every document states the type.
-- `tests/`: 1262 tests.
+## What was built in G-b
+- **Players and simulated stakeholders.** The players are the four authorities. Bank management is played by the control team; the engine still works out what it sees, for its role card.
+- **G4 main events list** (.docx and .csv): every inject to a player with its trigger (time or milestone), who delivers it, its purpose (advance, challenge, control), the expected response and its sheet numbers. Dynamic: what one player should tell another is an expected response, with a fallback inject (Handbook par. 191). Linear: a course correction per decision (par. 126-127).
+- **Inject sheets**: one inject per page per player, numbered (e.g. RA-A07), with nothing of the control team's notes on the pages handed out. They replace the players' documents.
+- **G5 challenge injects**, each switched on or off: interested buyer with an assumed price (par. 192), second valuation one level worse than the first (par. 129), and under hostile assumptions (par. 123) all buyers withdrawing, a creditors' challenge and the liquidity need at reopening raised by 25%. A rating downgrade is off by default and adds a news shock.
+- **G6 role cards** for bank management, independent valuer, media, finance minister and potential buyers: knows, wants, says at each stage, figures held, injects delivered.
+- App: assumptions and challenge injects in the Exercise script tab, rating downgrade in the sidebar, main events list preview. CLI: `--hostile`, `--challenge KEY`.
 
 ## How to run
-- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Linear showcase: `.venv/bin/python -m engine.run --showcase --mode linear --export-dir exports`
+- App: `./start.sh` | Tests: `.venv/bin/pytest -q` | Showcase pack: `.venv/bin/python -m engine.run --showcase --hostile --export-dir exports`
 
-## Acceptance output (G-a; the phase G acceptance pack comes with part c)
-Mapping of scenarios: fast run = liquidity, fast burning; slow burn = liquidity, slow burning; cyber outage = operational, slow burning; geopolitical = liquidity, slow burning (market-wide trigger, one bank modelled); loss revealed = solvency, rapid solvency issue. All idiosyncratic.
+## Acceptance output (G-b; the phase G acceptance pack and mapping table come with part c)
+Main events list of the showcase (retail bank, geopolitical shock, bail-in and liquidation branches):
 
-"Loss revealed" without decisions (R/E/F = day of recovery, early intervention, flag):
+| Pack | Injects | Advance | Challenge | Control | of which fallback | Course corrections |
+|---|---|---|---|---|---|---|
+| Dynamic, friendly | 46 | 22 | 12 | 12 | 8 | 0 |
+| Dynamic, hostile | 50 | 22 | 16 | 12 | 8 | 0 |
+| Linear, friendly | 35 | 19 | 8 | 8 | 0 | 6 |
 
-| Bank | Stages | Outcome at day 30 | Deposits lost | CET1 ratio at the end |
-|---|---|---|---|---|
-| Universal | 3/3/3 | under stress | 48% | 2.0% |
-| Retail | 3/3/3 | under stress | 28% | 8.0% |
-| Digital | 3/3/3 | under stress | 34% | 4.2% |
-| Specialised | 3/3/11 | under stress | 60% | 10.1% |
+Roles deliver: bank management 2 stage notifications, valuer 2 valuations per branch, media 4, finance minister 1, buyers 1 per branch. Second valuation: write-down 1.65 -> 3.30 EUR bn, need 0.27 -> 1.82, available MREL no longer enough. Indicative price 1.20 EUR bn. Liquidity need at reopening 1.94, hostile 2.43. With the rating downgrade deposits lost go from 32.7% to 33.8%; the outcome and its day do not change.
+- `pytest -q` -> `1294 passed`, including: every inject to a player is on the list exactly once; challenge injects without a news shock leave the daily table identical; the sheets handed out hold no trigger or expected response.
 
-No stage is reached before the loss; early intervention is triggered by capital on day 3; ELA is unavailable below the requirement. The other 16 pairs are unchanged from phase C1.
-- `pytest -q` -> `1262 passed`, including "no exported document without the SIMULATION label" in both exercise types and the four domain checks on the new scenario.
-
-## Deviations and choices (approved 2026-11-13)
-- The designer filters presets; it does not generate scenarios. System-wide is shown as not available until several banks are modelled (phase F).
-- The app's Timeline tab keeps its name; the Handbook term is used in the documents.
-- Config and code still call the five recipients "actors". Bank management moves to a control-team role card in part b, which is when the split into players and simulated stakeholders is made.
+## Deviations and choices
+- Config and code keep the word "actors" for the five information sets; `PLAYERS` and `ROLES` make the split. A full rename was not done: it would touch every test for no change in output.
+- The `players/` folder is gone until part c (dossier, rules of play). Everything is under `control_team/`.
+- The three new numbers are in `config/model.yaml`, without ranges, so the sensitivity runs are unchanged.
+- Sale of business is still computed like bail-in; the buyer's price changes no other figure. "All buyers withdraw" removes nothing in the model: the control team enforces it.
+- A second valuation is not played when the players already get the high write-down.
 
 ## Open questions
-- In "Loss revealed" no bank defaults on payments within 30 days: the failure is on capital, so the outcome depends on when FoLtF is declared.
-- Players' documents still hold all injects of a player in one file; inject sheets, expected responses and the main events list are part b.
-- Wording of scenarios, injects and resolution texts is a draft. Screenshots in docs/screenshots/ are out of date.
+- Is the competent authority the right holder of every relayed notification, or should the resolution authority relay to the deposit guarantee scheme?
+- Role-card lines and expected responses are a draft and need a practitioner's review, like all wording.
+- Screenshots in docs/screenshots/ are out of date.

@@ -64,7 +64,7 @@ def test_the_word_facilitator_is_gone_from_everything_the_user_sees():
         assert "participant" not in text, path  # players, in the Handbook's words
     files = pack_files(showcase_pack(), SCRIPT, DECISIONS)
     assert "control_team/control_team_pack.docx" in files
-    assert all(name.startswith(("players/", "control_team/")) for name in files)
+    assert all(name.startswith("control_team/") for name in files)
     for name, content in files.items():
         if name.endswith(".docx"):
             assert "facilitator" not in docx_text(content).lower(), name
@@ -268,7 +268,7 @@ def test_every_document_states_whether_the_exercise_is_linear_or_dynamic(mode):
         if name.endswith(".docx"):
             text = docx_text(content)
             assert MODE_TEXT[mode] in text and other not in text, name
-    player = docx_text(files["players/resolution_authority.docx"])
+    player = docx_text(files["control_team/inject_sheets/resolution_authority.docx"])
     if mode == "linear":
         assert "Branch code" not in player and "Branch A" not in player
         assert "It is recorded, but the exercise is linear" in player
